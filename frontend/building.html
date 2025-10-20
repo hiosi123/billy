@@ -1,0 +1,2413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>건물 관리비 시스템</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-text {
+            text-align: center;
+            flex: 1;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .header-actions {
+            min-width: 240px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .settings-btn, .logout-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            text-decoration: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+        }
+
+        .settings-btn:hover, .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .logout-btn {
+            background: rgba(231, 76, 60, 0.2);
+            border-color: rgba(231, 76, 60, 0.3);
+        }
+
+        .logout-btn:hover {
+            background: rgba(231, 76, 60, 0.3);
+            border-color: rgba(231, 76, 60, 0.5);
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .card.calculate-card h2 {
+            border-bottom-color: #e74c3c;
+        }
+
+        .card.history-card h2 {
+            border-bottom-color: #27ae60;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+            background: white;
+        }
+
+        /* 월 선택 슬라이더 스타일 */
+        .month-slider-container {
+            width: 100%;
+            padding: 15px;
+            background: #f8f9fa;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .month-display {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+        }
+
+        .month-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: linear-gradient(to right, #e1e1e1, #667eea, #e1e1e1);
+            outline: none;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .month-slider:hover {
+            opacity: 1;
+        }
+
+        .month-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: 3px solid white;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .month-slider::-moz-range-thumb {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: 3px solid white;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .month-range-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group select:disabled {
+            background: #f5f5f5;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .room-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 10px;
+            padding: 15px;
+            background: #f8f9fa;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            min-height: 60px;
+            transition: border-color 0.3s ease;
+        }
+
+        .room-buttons.disabled {
+            background: #f5f5f5;
+            border-color: #ddd;
+        }
+
+        .room-button {
+            background: white;
+            border: 2px solid #e1e1e1;
+            border-radius: 6px;
+            padding: 12px 8px;
+            cursor: pointer;
+            text-align: center;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            min-height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .room-button:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .room-button.selected {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .room-placeholder {
+            grid-column: 1 / -1;
+            text-align: center;
+            color: #999;
+            font-style: italic;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .clear-selection {
+            grid-column: 1 / -1;
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+            transition: background 0.2s ease;
+        }
+
+        .clear-selection:hover {
+            background: #545b62;
+        }
+
+        /* 지난달 검침값 표시 스타일 */
+        .prev-measure {
+            display: none;
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-top: 8px;
+            font-size: 0.9rem;
+            color: #1976d2;
+        }
+
+        .prev-measure span {
+            font-weight: 600;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: transform 0.2s ease;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+        }
+
+        .btn-calculate {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+
+        .btn-save {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+        }
+
+        .btn-history {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+        }
+
+        .btn-excel {
+            background: linear-gradient(135deg, #2d3436 0%, #636e72 100%);
+        }
+
+        .save-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+
+        .save-section.show {
+            display: block;
+        }
+
+        .results-section {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .results-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .month-selector {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: flex-end;
+        }
+
+        .month-selector-left {
+            flex: 2;
+        }
+
+        .month-selector button {
+            padding: 12px 20px;
+            min-width: 100px;
+            white-space: nowrap;
+        }
+
+        .usage-display {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .usage-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+
+        .usage-card h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .usage-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .usage-unit {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            text-align: center;
+        }
+
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* 관리비 계산 결과 스타일 */
+        .bill-result {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 4px solid #e74c3c;
+        }
+
+        .room-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e74c3c;
+        }
+
+        .room-number {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #e74c3c;
+        }
+
+        .total-amount {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .bill-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .bill-category {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+
+        .category-title {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .category-items {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .bill-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+        }
+
+        .bill-label {
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        .bill-amount {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .bill-total {
+            border-top: 1px solid #ddd;
+            margin-top: 8px;
+            padding-top: 8px;
+            font-weight: bold;
+        }
+
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+
+        .summary-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+        }
+
+        .summary-stat {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        @media (max-width: 1200px) {
+            .main-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .header-content {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .header-text {
+                text-align: center;
+            }
+
+            .header-actions {
+                min-width: auto;
+                justify-content: center;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .usage-display {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .month-selector {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .month-selector button {
+                width: 100%;
+            }
+            
+            .room-buttons {
+                grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+                gap: 8px;
+                padding: 12px;
+            }
+            
+            .room-button {
+                padding: 10px 6px;
+                font-size: 0.8rem;
+                min-height: 40px;
+            }
+
+            .bill-details {
+                grid-template-columns: 1fr;
+            }
+
+            .summary-stats {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .header-actions {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .settings-btn, .logout-btn {
+                padding: 10px 15px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-content">
+                <div class="header-text">
+                    <h1>🏢 건물 관리비 시스템</h1>
+                    <p>효율적인 사용량 관리로 스마트한 관리비 계산</p>
+                </div>
+                <div class="header-actions">
+                    <a href="/settings" class="settings-btn" title="건물 관리 설정">
+                        ⚙️ 설정
+                    </a>
+                    <button class="logout-btn" onclick="logout()" title="로그아웃">
+                        🚪 로그아웃
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <!-- 사용량 입력 카드 -->
+            <div class="card">
+                <h2>📊 사용량 입력</h2>
+                <form id="usageForm">
+                    <div class="form-group">
+                        <label for="buildingSelect">🏢 건물 선택</label>
+                        <select id="buildingSelect" required>
+                            <option value="">건물을 선택하세요</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="floorSelect">🏬 층 선택</label>
+                        <select id="floorSelect" required disabled>
+                            <option value="">먼저 건물을 선택하세요</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>🚪 계량기 선택</label>
+                        <div id="roomButtons" class="room-buttons disabled">
+                            <p class="room-placeholder">먼저 층을 선택하세요</p>
+                        </div>
+                        <input type="hidden" id="selectedRoomId" required>
+                    </div>
+                    <div class="form-group">
+                        <label>📅 청구 월</label>
+                        <div class="month-slider-container">
+                            <div class="month-display" id="chargeMonthDisplay">2025년 01월</div>
+                            <input type="range" class="month-slider" id="chargeMonthSlider" 
+                                   min="-12" max="12" value="-1" step="1">
+                            <div class="month-range-labels">
+                                <span>12개월 전</span>
+                                <span>현재</span>
+                                <span>12개월 후</span>
+                            </div>
+                        </div>
+                        <input type="hidden" id="chargeMonth" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="waterUsage">💧 수도 검침 (톤)</label>
+                        <input type="text" id="waterUsage" placeholder="예: 150" required>
+                        <div id="prevWaterMeasure" class="prev-measure">
+                            💡 지난달 검침: <span></span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="electricityUsage">⚡ 전기 검침 (kWh)</label>
+                        <input type="text" id="electricityUsage" placeholder="예: 1,200" required>
+                        <div id="prevElectricityMeasure" class="prev-measure">
+                            💡 지난달 검침: <span></span>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn">사용량 저장</button>
+                </form>
+                <div id="submitMessage"></div>
+            </div>
+
+            <!-- 빠른 조회 카드 -->
+            <div class="card">
+                <h2>🔍 월별 조회</h2>
+                
+                <!-- 사용량 조회 -->
+                <div class="form-group">
+                    <label for="searchBuildingSelect">🏢 건물 선택</label>
+                    <select id="searchBuildingSelect">
+                        <option value="">전체 건물</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="searchFloorSelect">🏬 층 선택</label>
+                    <select id="searchFloorSelect" disabled>
+                        <option value="">전체 층</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>🚪 계량기 선택</label>
+                    <div id="searchRoomButtons" class="room-buttons disabled">
+                        <p class="room-placeholder">전체 계량기</p>
+                    </div>
+                    <input type="hidden" id="selectedSearchRoomId">
+                </div>
+                <div class="form-group">
+                    <label>📅 조회 월</label>
+                    <div class="month-slider-container">
+                        <div class="month-display" id="searchMonthDisplay">2025년 01월</div>
+                        <input type="range" class="month-slider" id="searchMonthSlider" 
+                               min="-12" max="12" value="-1" step="1">
+                        <div class="month-range-labels">
+                            <span>12개월 전</span>
+                            <span>현재</span>
+                            <span>12개월 후</span>
+                        </div>
+                    </div>
+                    <input type="hidden" id="searchMonth">
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="searchByMonth()">조회</button>
+
+                <div id="quickResults"></div>
+            </div>
+
+            <!-- 관리비 계산 카드 -->
+            <div class="card calculate-card">
+                <h2>💰 관리비 계산</h2>
+                <form id="calculateForm">
+                    <div class="form-group">
+                        <label for="calcBuildingSelect">🏢 건물 선택</label>
+                        <select id="calcBuildingSelect" required>
+                            <option value="">건물을 선택하세요</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>📅 계산 월</label>
+                        <div class="month-slider-container">
+                            <div class="month-display" id="calcMonthDisplay">2025년 01월</div>
+                            <input type="range" class="month-slider" id="calcMonthSlider" 
+                                   min="-12" max="12" value="-1" step="1">
+                            <div class="month-range-labels">
+                                <span>12개월 전</span>
+                                <span>현재</span>
+                                <span>12개월 후</span>
+                            </div>
+                        </div>
+                        <input type="hidden" id="calcMonth" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="electricityTotalCost">⚡ 전기 총 비용 (원)</label>
+                        <input type="text" id="electricityTotalCost" placeholder="예: 4,504,824" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="electricityTotalUsage">⚡ 전기 총 사용량 (kWh)</label>
+                        <input type="text" id="electricityTotalUsage" placeholder="예: 22,001" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="waterTotalCost">💧 수도 총 비용 (원)</label>
+                        <input type="text" id="waterTotalCost" placeholder="예: 969,100" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="waterTotalUsage">💧 수도 총 사용량 (톤)</label>
+                        <input type="text" id="waterTotalUsage" placeholder="예: 272" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="waterSupplyCost">💧 수도 공급비용 (원)</label>
+                        <input type="text" id="waterSupplyCost" placeholder="예: 397,120" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="waterSewerCost">💧 하수도 비용 (원)</label>
+                        <input type="text" id="waterSewerCost" placeholder="예: 532,680" required>
+                    </div>
+                    <button type="submit" class="btn btn-calculate">관리비 계산</button>
+                </form>
+                <div id="calculateMessage"></div>
+                
+                <!-- 저장 섹션 -->
+                <div id="saveSection" class="save-section">
+                    <p style="margin-bottom: 15px; color: #27ae60; font-weight: 500;">
+                        ✅ 계산이 완료되었습니다. 결과를 저장하시겠습니까?
+                    </p>
+                    <button type="button" class="btn btn-save" onclick="saveBillHistory()">💾 관리비 내역 저장</button>
+                    <div id="saveMessage"></div>
+                </div>
+            </div>
+
+            <!-- 추가 기능 카드 -->
+            <div class="card history-card">
+                <h2>📋 관리비 내역 관리</h2>
+                <div class="form-group">
+                    <label for="manageBuildingSelect">🏢 건물 선택</label>
+                    <select id="manageBuildingSelect">
+                        <option value="">건물을 선택하세요</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>📅 월 선택</label>
+                    <div class="month-slider-container">
+                        <div class="month-display" id="manageMonthDisplay">2025년 01월</div>
+                        <input type="range" class="month-slider" id="manageMonthSlider" 
+                               min="-12" max="12" value="-1" step="1">
+                        <div class="month-range-labels">
+                            <span>12개월 전</span>
+                            <span>현재</span>
+                            <span>12개월 후</span>
+                        </div>
+                    </div>
+                    <input type="hidden" id="manageMonth">
+                </div>
+                <button type="button" class="btn btn-history" onclick="loadAllBillHistories()">전체 내역 조회</button>
+                <button type="button" class="btn btn-secondary" onclick="loadBillHistoriesByMonth()">월별 내역 조회</button>
+                <button type="button" class="btn btn-excel" onclick="downloadExcel()" id="excelDownloadBtn" style="display: none;">📊 엑셀 다운로드</button>
+                <div id="manageMessage"></div>
+            </div>
+        </div>
+
+        <!-- 결과 표시 섹션 -->
+        <div class="results-section">
+            <h2 id="resultsTitle">📈 사용량 현황</h2>
+            <div id="resultsArea">
+                <p style="text-align: center; color: #666; padding: 40px;">
+                    월별 조회를 통해 사용량 현황을 확인하세요.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script>
+        // API 기본 URL (실제 서버 주소로 변경해야 함)
+        const API_BASE_URL = 'http://billys.duckdns.org:3000/api/v1';
+
+        // 로그아웃 함수
+        async function logout() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+                    method: 'POST',
+                    credentials: 'include', // 쿠키 포함
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (response.ok) {
+                    // 로그아웃 성공 시 로그인 페이지로 리디렉션
+                    window.location.href = '/';
+                } else {
+                    console.error('로그아웃 실패:', response.status);
+                    alert('로그아웃 중 오류가 발생했습니다.');
+                }
+            } catch (error) {
+                console.error('로그아웃 요청 실패:', error);
+                alert('서버 연결에 실패했습니다.');
+            }
+        }
+
+        // 계산된 관리비 데이터를 저장할 전역 변수
+        let currentBillData = null;
+        let currentBillMonth = null;
+        
+        // 엑셀 다운로드용 데이터를 저장할 전역 변수
+        let excelDownloadData = null;
+
+        // 이전 월 계산 함수
+        function getPreviousMonth(month) {
+            if (!month || month.length !== 6) return null;
+            
+            const year = parseInt(month.substring(0, 4));
+            const monthNum = parseInt(month.substring(4, 6));
+            
+            let prevYear = year;
+            let prevMonth = monthNum - 1;
+            
+            if (prevMonth === 0) {
+                prevYear = year - 1;
+                prevMonth = 12;
+            }
+            
+            return prevYear.toString() + prevMonth.toString().padStart(2, '0');
+        }
+
+        // 현재 월 검침값 로드 및 입력 필드 자동 채우기 함수 추가
+        async function loadCurrentMonthMeasure() {
+            console.log('loadCurrentMonthMeasure 함수 호출됨');
+            
+            const roomId = document.getElementById('selectedRoomId').value;
+            const currentMonth = document.getElementById('chargeMonth').value;
+            
+            console.log('roomId:', roomId, 'currentMonth:', currentMonth);
+            
+            const waterInput = document.getElementById('waterUsage');
+            const electricityInput = document.getElementById('electricityUsage');
+            
+            if (!waterInput || !electricityInput) {
+                console.log('입력 필드를 찾을 수 없음');
+                return;
+            }
+            
+            if (!roomId || !currentMonth) {
+                console.log('roomId 또는 currentMonth가 없음');
+                return;
+            }
+            
+            try {
+                const searchParams = new URLSearchParams({
+                    month: currentMonth,
+                    RoomId: roomId
+                });
+                
+                const url = `${API_BASE_URL}/bills/conditions?${searchParams.toString()}`;
+                console.log('현재 월 API 호출 URL:', url);
+                
+                const response = await fetch(url);
+                console.log('현재 월 API 응답 상태:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('현재 월 API 응답 데이터:', result);
+                    const bills = result.data;
+                    
+                    if (bills && bills.length > 0) {
+                        const bill = bills[0];
+                        console.log('현재 월 bill 데이터:', bill);
+                        
+                        // 수도 검침값이 있으면 입력 필드에 채우기 (0 포함)
+                        if (bill.WaterMeasure !== undefined && bill.WaterMeasure !== null) {
+                            console.log('수도 검침값 자동 입력:', bill.WaterMeasure);
+                            waterInput.value = formatNumber(bill.WaterMeasure);
+                        }
+
+                        // 전기 검침값이 있으면 입력 필드에 채우기 (0 포함)
+                        if (bill.ElectricityMeasure !== undefined && bill.ElectricityMeasure !== null) {
+                            console.log('전기 검침값 자동 입력:', bill.ElectricityMeasure);
+                            electricityInput.value = formatNumber(bill.ElectricityMeasure);
+                        }
+                    } else {
+                        console.log('현재 월 bills 데이터가 없음 - 입력 필드 초기화');
+                        // 데이터가 없으면 입력 필드 비우기
+                        waterInput.value = '';
+                        electricityInput.value = '';
+                    }
+                } else {
+                    console.log('현재 월 API 응답 실패:', response.status, '- 입력 필드 초기화');
+                    // API 실패 시 입력 필드 비우기
+                    waterInput.value = '';
+                    electricityInput.value = '';
+                }
+            } catch (error) {
+                console.error('현재 월 검침값 로드 실패:', error);
+            }
+        }
+
+        // loadPreviousMonthMeasure 함수 끝에 현재 월 데이터도 로드하도록 수정
+        async function loadPreviousMonthMeasure() {
+            console.log('loadPreviousMonthMeasure 함수 호출됨');
+            
+            const roomId = document.getElementById('selectedRoomId').value;
+            const currentMonth = document.getElementById('chargeMonth').value;
+            
+            console.log('roomId:', roomId, 'currentMonth:', currentMonth);
+            
+            // 검침값 표시 영역
+            const prevWaterDiv = document.getElementById('prevWaterMeasure');
+            const prevElectricityDiv = document.getElementById('prevElectricityMeasure');
+            
+            // 요소가 존재하지 않으면 리턴
+            if (!prevWaterDiv || !prevElectricityDiv) {
+                console.log('prevWaterMeasure 또는 prevElectricityMeasure 요소를 찾을 수 없음');
+                return;
+            }
+            
+            // 초기화
+            prevWaterDiv.style.display = 'none';
+            prevElectricityDiv.style.display = 'none';
+            
+            if (!roomId || !currentMonth) {
+                console.log('roomId 또는 currentMonth가 없음');
+                return;
+            }
+            
+            const previousMonth = getPreviousMonth(currentMonth);
+            console.log('previousMonth:', previousMonth);
+            
+            if (!previousMonth) {
+                console.log('previousMonth 계산 실패');
+                return;
+            }
+            
+            try {
+                const searchParams = new URLSearchParams({
+                    month: previousMonth,
+                    RoomId: roomId
+                });
+                
+                const url = `${API_BASE_URL}/bills/conditions?${searchParams.toString()}`;
+                console.log('API 호출 URL:', url);
+                
+                const response = await fetch(url);
+                console.log('API 응답 상태:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('API 응답 데이터:', result);
+                    const bills = result.data;
+                    
+                    if (bills && bills.length > 0) {
+                        const bill = bills[0];
+                        console.log('첫 번째 bill 데이터:', bill);
+                        
+                        if (bill.WaterMeasure !== undefined && bill.WaterMeasure !== null) {
+                            console.log('수도 검침값:', bill.WaterMeasure);
+                            const waterSpan = prevWaterDiv.querySelector('span');
+                            if (waterSpan) {
+                                waterSpan.textContent = `${bill.WaterMeasure.toLocaleString()}톤`;
+                                prevWaterDiv.style.display = 'block';
+                            }
+                        }
+                        
+                        if (bill.ElectricityMeasure !== undefined && bill.ElectricityMeasure !== null) {
+                            console.log('전기 검침값:', bill.ElectricityMeasure);
+                            const electricitySpan = prevElectricityDiv.querySelector('span');
+                            if (electricitySpan) {
+                                electricitySpan.textContent = `${bill.ElectricityMeasure.toLocaleString()}kWh`;
+                                prevElectricityDiv.style.display = 'block';
+                            }
+                        }
+                    } else {
+                        console.log('bills 데이터가 없거나 빈 배열');
+                    }
+                } else {
+                    console.log('API 응답 실패:', response.status);
+                }
+            } catch (error) {
+                console.error('지난달 검침값 로드 실패:', error);
+            }
+            
+            // 지난달 데이터 로드 후 현재 월 데이터도 로드
+            await loadCurrentMonthMeasure();
+        }
+
+        // 숫자 포맷팅 함수
+        function formatNumber(value) {
+            if (!value) return '';
+            // 숫자만 추출 (소수점 포함)
+            const numericValue = value.toString().replace(/[^0-9.]/g, '');
+            if (!numericValue) return '';
+            
+            const num = parseFloat(numericValue);
+            if (isNaN(num)) return '';
+            
+            // 소수점이 있는 경우와 없는 경우를 구분하여 처리
+            if (numericValue.includes('.')) {
+                // 소수점이 있는 경우 - 수동으로 천 단위 콤마 추가
+                const parts = numericValue.split('.');
+                const integerPart = parseInt(parts[0]).toLocaleString();
+                return parts[1] !== undefined ? `${integerPart}.${parts[1]}` : integerPart;
+            } else {
+                // 정수인 경우
+                return num.toLocaleString();
+            }
+        }
+
+        // 숫자에서 쉼표 제거
+        function removeComma(value) {
+            return value ? value.toString().replace(/,/g, '') : '';
+        }
+
+        // 숫자 입력 필드에 포맷팅 적용
+        function setupNumberFormatting() {
+            const numberFields = [
+                'waterUsage', 'electricityUsage', 
+                'electricityTotalCost', 'electricityTotalUsage',
+                'waterTotalCost', 'waterTotalUsage',
+                'waterSupplyCost', 'waterSewerCost'
+            ];
+
+            numberFields.forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.addEventListener('input', function(e) {
+                        const cursorPosition = e.target.selectionStart;
+                        const oldLength = e.target.value.length;
+                        const formatted = formatNumber(e.target.value);
+                        e.target.value = formatted;
+                        
+                        // 커서 위치 조정
+                        const newLength = formatted.length;
+                        const newCursorPosition = cursorPosition + (newLength - oldLength);
+                        e.target.setSelectionRange(newCursorPosition, newCursorPosition);
+                    });
+
+                    field.addEventListener('blur', function(e) {
+                        e.target.value = formatNumber(e.target.value);
+                    });
+                }
+            });
+        }
+
+        // 월 슬라이더 관련 함수들
+        function updateMonthFromSlider(sliderId, displayId, hiddenId) {
+            const slider = document.getElementById(sliderId);
+            const display = document.getElementById(displayId);
+            const hidden = document.getElementById(hiddenId);
+            
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth(); // 0-11
+            
+            // 슬라이더 값만큼 월 더하기/빼기
+            const targetDate = new Date(currentYear, currentMonth + parseInt(slider.value), 1);
+            const targetYear = targetDate.getFullYear();
+            const targetMonth = targetDate.getMonth() + 1; // 1-12
+            
+            // 표시용 텍스트 업데이트
+            display.textContent = `${targetYear}년 ${targetMonth.toString().padStart(2, '0')}월`;
+            
+            // 숨겨진 필드에 YYYYMM 형식으로 저장
+            hidden.value = targetYear.toString() + targetMonth.toString().padStart(2, '0');
+        }
+
+        // 월 슬라이더 초기화
+        function initializeMonthSliders() {
+            const sliders = [
+                { slider: 'chargeMonthSlider', display: 'chargeMonthDisplay', hidden: 'chargeMonth' },
+                { slider: 'searchMonthSlider', display: 'searchMonthDisplay', hidden: 'searchMonth' },
+                { slider: 'calcMonthSlider', display: 'calcMonthDisplay', hidden: 'calcMonth' },
+                { slider: 'manageMonthSlider', display: 'manageMonthDisplay', hidden: 'manageMonth' }
+            ];
+
+            sliders.forEach(config => {
+                const slider = document.getElementById(config.slider);
+                if (slider) {
+                    // 초기값 설정
+                    updateMonthFromSlider(config.slider, config.display, config.hidden);
+                    
+                    // 이벤트 리스너 추가
+                    slider.addEventListener('input', function() {
+                        updateMonthFromSlider(config.slider, config.display, config.hidden);
+                        
+                        // 사용량 입력 폼의 월 슬라이더인 경우 지난달 검침값 로드
+                        if (config.slider === 'chargeMonthSlider') {
+                            loadPreviousMonthMeasure();
+                        }
+                    });
+                }
+            });
+        }
+
+        // 현재 월 자동 입력 및 초기 데이터 로드
+        document.addEventListener('DOMContentLoaded', function() {
+            // 월 슬라이더 초기화
+            initializeMonthSliders();
+            
+            // 건물 데이터 로드
+            loadBuildings();
+            setupEventListeners();
+            setupNumberFormatting();
+        });
+
+        // 건물 데이터 로드
+        async function loadBuildings() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/buildings`);
+                const buildings = await response.json();
+                
+                const selects = [
+                    { id: 'buildingSelect', targetFloorSelect: 'floorSelect' },
+                    { id: 'searchBuildingSelect', targetFloorSelect: 'searchFloorSelect' },
+                    { id: 'calcBuildingSelect', targetFloorSelect: null },
+                    { id: 'manageBuildingSelect', targetFloorSelect: null }
+                ];
+                
+                selects.forEach(selectConfig => {
+                    const select = document.getElementById(selectConfig.id);
+                    buildings.data.forEach(building => {
+                        const option = new Option(`${building.BuildingName} (${building.Owner})`, building.BuildingId);
+                        select.add(option.cloneNode(true));
+                    });
+                    
+                    // 건물이 1개만 있으면 자동 선택
+                    if (buildings.data.length === 1) {
+                        const building = buildings.data[0];
+                        select.value = building.BuildingId;
+                        
+                        // 층 데이터도 자동으로 로드 (입력폼과 검색폼만)
+                        if (selectConfig.targetFloorSelect) {
+                            loadFloors(building.BuildingId, selectConfig.targetFloorSelect);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('건물 데이터 로드 실패:', error);
+            }
+        }
+
+        // 층 데이터 로드
+        async function loadFloors(buildingId, targetSelectId) {
+            const floorSelect = document.getElementById(targetSelectId);
+            floorSelect.innerHTML = '<option value="">층을 선택하세요</option>';
+            floorSelect.disabled = false;
+            
+            // 계량기 버튼도 초기화
+            const roomContainerId = targetSelectId === 'floorSelect' ? 'roomButtons' : 'searchRoomButtons';
+            const hiddenInputId = targetSelectId === 'floorSelect' ? 'selectedRoomId' : 'selectedSearchRoomId';
+            const roomContainer = document.getElementById(roomContainerId);
+            const hiddenInput = document.getElementById(hiddenInputId);
+            
+            roomContainer.className = 'room-buttons disabled';
+            roomContainer.innerHTML = '<p class="room-placeholder">먼저 층을 선택하세요</p>';
+            hiddenInput.value = '';
+            
+            // 지난달 검침값 숨기기
+            if (targetSelectId === 'floorSelect') {
+                const prevWaterDiv = document.getElementById('prevWaterMeasure');
+                const prevElectricityDiv = document.getElementById('prevElectricityMeasure');
+                if (prevWaterDiv) prevWaterDiv.style.display = 'none';
+                if (prevElectricityDiv) prevElectricityDiv.style.display = 'none';
+            }
+            
+            if (!buildingId) {
+                floorSelect.disabled = true;
+                floorSelect.innerHTML = '<option value="">먼저 건물을 선택하세요</option>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/floors/buildings/${buildingId}`);
+                const floors = await response.json();
+                
+                floors.data.forEach(floor => {
+                    const option = new Option(`${floor.Floor}층`, floor.FloorId);
+                    floorSelect.add(option);
+                });
+            } catch (error) {
+                console.error('층 데이터 로드 실패:', error);
+            }
+        }
+
+        // 계량기 버튼 로드
+        async function loadRoomButtons(floorId, targetContainerId, hiddenInputId) {
+            const roomContainer = document.getElementById(targetContainerId);
+            const hiddenInput = document.getElementById(hiddenInputId);
+            
+            // 초기화
+            hiddenInput.value = '';
+            roomContainer.className = 'room-buttons disabled';
+            
+            // 지난달 검침값 숨기기
+            if (targetContainerId === 'roomButtons') {
+                const prevWaterDiv = document.getElementById('prevWaterMeasure');
+                const prevElectricityDiv = document.getElementById('prevElectricityMeasure');
+                if (prevWaterDiv) prevWaterDiv.style.display = 'none';
+                if (prevElectricityDiv) prevElectricityDiv.style.display = 'none';
+            }
+            
+            if (!floorId) {
+                roomContainer.innerHTML = '<p class="room-placeholder">먼저 층을 선택하세요</p>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/rooms/floors/${floorId}`);
+                const rooms = await response.json();
+                
+                if (rooms.length === 0) {
+                    roomContainer.innerHTML = '<p class="room-placeholder">계량기가 없습니다</p>';
+                    return;
+                }
+                
+                roomContainer.className = 'room-buttons';
+                
+                // 검색용인 경우 "전체" 버튼 추가
+                let buttonsHtml = '';
+                if (targetContainerId === 'searchRoomButtons') {
+                    buttonsHtml += `<button type="button" class="clear-selection" onclick="clearRoomSelection('${hiddenInputId}', '${targetContainerId}')">전체 계량기</button>`;
+                }
+                
+                // 계량기 버튼들 생성
+                buttonsHtml += rooms.data.map(room => `
+                    <button type="button" class="room-button" 
+                            onclick="selectRoom(${room.RoomId}, '${room.MeasureMachine || room.RoomNumber}', '${hiddenInputId}', '${targetContainerId}')"
+                            data-room-id="${room.RoomId}">
+                        ${room.MeasureMachine || room.RoomNumber}
+                    </button>
+                `).join('');
+                
+                roomContainer.innerHTML = buttonsHtml;
+                
+            } catch (error) {
+                console.error('계량기 데이터 로드 실패:', error);
+                roomContainer.innerHTML = '<p class="room-placeholder">계량기 로드 실패</p>';
+            }
+        }
+
+        // 계량기 선택
+        function selectRoom(roomId, roomNumber, hiddenInputId, containerId) {
+            const hiddenInput = document.getElementById(hiddenInputId);
+            const container = document.getElementById(containerId);
+            
+            // 기존 선택 해제
+            container.querySelectorAll('.room-button').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            
+            // 새 선택 적용
+            const selectedButton = container.querySelector(`[data-room-id="${roomId}"]`);
+            if (selectedButton) {
+                selectedButton.classList.add('selected');
+            }
+            
+            hiddenInput.value = roomId;
+            
+            // 사용량 입력 폼의 계량기 선택인 경우 지난달 검침값 로드
+            if (containerId === 'roomButtons') {
+                loadPreviousMonthMeasure();
+                loadCurrentMonthMeasure()
+            }
+        }
+
+        // 계량기 선택 해제 (검색용)
+        function clearRoomSelection(hiddenInputId, containerId) {
+            const hiddenInput = document.getElementById(hiddenInputId);
+            const container = document.getElementById(containerId);
+            
+            // 모든 선택 해제
+            container.querySelectorAll('.room-button').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            
+            hiddenInput.value = '';
+        }
+
+        // 이벤트 리스너 설정
+        function setupEventListeners() {
+            // 입력 폼용 이벤트
+            document.getElementById('buildingSelect').addEventListener('change', function() {
+                loadFloors(this.value, 'floorSelect');
+            });
+            
+            document.getElementById('floorSelect').addEventListener('change', function() {
+                loadRoomButtons(this.value, 'roomButtons', 'selectedRoomId');
+            });
+            
+            // 검색용 이벤트
+            document.getElementById('searchBuildingSelect').addEventListener('change', function() {
+                loadFloors(this.value, 'searchFloorSelect');
+            });
+            
+            document.getElementById('searchFloorSelect').addEventListener('change', function() {
+                loadRoomButtons(this.value, 'searchRoomButtons', 'selectedSearchRoomId');
+            });
+
+            // 관리비 계산 폼 이벤트
+            document.getElementById('calculateForm').addEventListener('submit', calculateBills);
+        }
+
+        // 사용량 입력 폼 처리
+        document.getElementById('usageForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                BuildingId: parseInt(document.getElementById('buildingSelect').value),
+                FloorId: parseInt(document.getElementById('floorSelect').value),
+                RoomId: parseInt(document.getElementById('selectedRoomId').value),
+                ChargeMonth: document.getElementById('chargeMonth').value,
+                WaterMeasure: parseFloat(removeComma(document.getElementById('waterUsage').value)),
+                ElectricityMeasure: parseFloat(removeComma(document.getElementById('electricityUsage').value))
+            };
+
+            // 필수 필드 검증
+            if (!formData.BuildingId || !formData.FloorId || !formData.RoomId) {
+                document.getElementById('submitMessage').innerHTML = 
+                    '<div class="message error">❌ 건물, 층, 계량기를 모두 선택해주세요.</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/bills/measurements`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const messageDiv = document.getElementById('submitMessage');
+                
+                if (response.ok) {
+                    messageDiv.innerHTML = '<div class="message success">✅ 사용량이 성공적으로 저장되었습니다!</div>';
+                    
+                    // 숫자 입력 필드만 초기화
+                    document.getElementById('waterUsage').value = '';
+                    document.getElementById('electricityUsage').value = '';
+                    
+                    // 건물/층/계량기 선택은 유지 (연속 입력 편의)
+                } else {
+                    const error = await response.json();
+                    messageDiv.innerHTML = `<div class="message error">❌ 오류: ${error.error || '저장에 실패했습니다.'}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('submitMessage').innerHTML = 
+                    '<div class="message error">❌ 서버 연결에 실패했습니다. 네트워크를 확인해주세요.</div>';
+            }
+
+            // 3초 후 메시지 자동 제거
+            setTimeout(() => {
+                document.getElementById('submitMessage').innerHTML = '';
+            }, 3000);
+        });
+
+        // 관리비 계산 함수
+        async function calculateBills(e) {
+            e.preventDefault();
+            
+            // 저장 섹션 숨기기
+            document.getElementById('saveSection').classList.remove('show');
+            
+            const formData = {
+                BuildingId: parseInt(document.getElementById('calcBuildingSelect').value),
+                Month: document.getElementById('calcMonth').value,
+                ElectricityTotalCost: parseFloat(removeComma(document.getElementById('electricityTotalCost').value)),
+                WaterTotalCost: parseFloat(removeComma(document.getElementById('waterTotalCost').value)),
+                ElectricityTotalUsage: parseFloat(removeComma(document.getElementById('electricityTotalUsage').value)),
+                WaterTotalUsage: parseFloat(removeComma(document.getElementById('waterTotalUsage').value)),
+                WaterSupplyCost: parseFloat(removeComma(document.getElementById('waterSupplyCost').value)),
+                WaterSewerCost: parseFloat(removeComma(document.getElementById('waterSewerCost').value))
+            };
+
+            // 필수 필드 검증
+            if (!formData.BuildingId || !formData.Month) {
+                document.getElementById('calculateMessage').innerHTML = 
+                    '<div class="message error">❌ 건물과 월을 입력해주세요.</div>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/bills/calculate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const messageDiv = document.getElementById('calculateMessage');
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    messageDiv.innerHTML = '<div class="message success">✅ 관리비 계산이 완료되었습니다!</div>';
+                    
+                    // 결과 표시
+                    displayBillResults(result.data, formData.Month);
+                    
+                    // 계산된 데이터 저장 (저장용)
+                    currentBillData = result.data;
+                    currentBillMonth = formData.Month;
+                    
+                    // 저장 섹션 표시
+                    document.getElementById('saveSection').classList.add('show');
+                    
+                } else {
+                    const error = await response.json();
+                    messageDiv.innerHTML = `<div class="message error">❌ 오류: ${error.error || '계산에 실패했습니다.'}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('calculateMessage').innerHTML = 
+                    '<div class="message error">❌ 서버 연결에 실패했습니다. 네트워크를 확인해주세요.</div>';
+            }
+
+            // 3초 후 메시지 자동 제거
+            setTimeout(() => {
+                document.getElementById('calculateMessage').innerHTML = '';
+            }, 3000);
+        }
+
+        // 관리비 내역 저장 함수
+        async function saveBillHistory() {
+            if (!currentBillData || !currentBillMonth) {
+                document.getElementById('saveMessage').innerHTML = 
+                    '<div class="message error">❌ 저장할 계산 결과가 없습니다.</div>';
+                return;
+            }
+
+            try {
+                // 각 호실별로 개별 저장
+                const savePromises = Object.entries(currentBillData).map(async ([roomNumber, billData]) => {
+                    const historyData = {
+                        RoomNumber: parseInt(roomNumber),
+                        ChargeMonth: currentBillMonth,
+                        ElectricityCost: billData.ElectricityCost,
+                        ElectricityCostCommon: billData.ElectricityCostCommon,
+                        ElectricityCostTax: billData.ElectricityCostTax,
+                        ElectricityCostFund: billData.ElectricityCostFund,
+                        ElectricityCostTotal: billData.ElectricityCostTotal,
+                        WaterCostSupply: billData.WaterCostSupply,
+                        WaterCostSewer: billData.WaterCostSewer,
+                        WaterCostCommon: billData.WaterCostCommon,
+                        WaterCostTotal: billData.WaterCostTotal,
+                        TotalCost: billData.TotalCost,
+                        BuildingId: billData.BuildingId
+                    };
+
+                    return fetch(`${API_BASE_URL}/bills/histories`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(historyData)
+                    });
+                });
+
+                const responses = await Promise.all(savePromises);
+                const allSuccessful = responses.every(response => response.ok);
+
+                const messageDiv = document.getElementById('saveMessage');
+                
+                if (allSuccessful) {
+                    messageDiv.innerHTML = '<div class="message success">💾 관리비 내역이 성공적으로 저장되었습니다!</div>';
+                    
+                    // 저장 완료 후 섹션 숨기기
+                    setTimeout(() => {
+                        document.getElementById('saveSection').classList.remove('show');
+                    }, 2000);
+                    
+                } else {
+                    messageDiv.innerHTML = '<div class="message error">❌ 일부 데이터 저장에 실패했습니다.</div>';
+                }
+                
+            } catch (error) {
+                document.getElementById('saveMessage').innerHTML = 
+                    '<div class="message error">❌ 저장 중 오류가 발생했습니다.</div>';
+            }
+
+            // 3초 후 메시지 자동 제거
+            setTimeout(() => {
+                document.getElementById('saveMessage').innerHTML = '';
+            }, 3000);
+        }
+
+        // 전체 관리비 내역 조회
+        async function loadAllBillHistories() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/bills/histories`);
+                
+                if (response.ok) {
+                    const billHistories = await response.json();
+                    displayAllBillHistories(billHistories.data);
+                } else {
+                    document.getElementById('manageMessage').innerHTML = 
+                        '<div class="message error">❌ 관리비 내역을 불러올 수 없습니다.</div>';
+                }
+            } catch (error) {
+                console.error('전체 관리비 내역 조회 오류:', error);
+                document.getElementById('manageMessage').innerHTML = 
+                    '<div class="message error">❌ 서버 연결에 실패했습니다.</div>';
+            }
+
+            // 엑셀 다운로드 버튼 숨기기
+            document.getElementById('excelDownloadBtn').style.display = 'none';
+            excelDownloadData = null;
+
+            setTimeout(() => {
+                document.getElementById('manageMessage').innerHTML = '';
+            }, 3000);
+        }
+
+        // 월별 관리비 내역 조회
+        async function loadBillHistoriesByMonth() {
+            const buildingId = document.getElementById('manageBuildingSelect').value;
+            const month = document.getElementById('manageMonth').value;
+
+            if (!buildingId || !month) {
+                document.getElementById('manageMessage').innerHTML = 
+                    '<div class="message error">❌ 건물과 월을 모두 입력해주세요.</div>';
+                
+                setTimeout(() => {
+                    document.getElementById('manageMessage').innerHTML = '';
+                }, 3000);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/bills/histories/month/${month}/building/${buildingId}`);
+                
+                if (response.ok) {
+                    const billHistories = await response.json();
+                    displayBillHistoryResults(billHistories.data, month);
+                    
+                    // 엑셀 다운로드용 데이터 저장
+                    excelDownloadData = billHistories.data;
+                    
+                    // 엑셀 다운로드 버튼 표시
+                    const excelBtn = document.getElementById('excelDownloadBtn');
+                    if (billHistories.data && billHistories.data.length > 0) {
+                        excelBtn.style.display = 'block';
+                    } else {
+                        excelBtn.style.display = 'none';
+                    }
+                } else {
+                    document.getElementById('manageMessage').innerHTML = 
+                        '<div class="message error">❌ 해당 조건의 관리비 내역을 찾을 수 없습니다.</div>';
+                    
+                    // 엑셀 다운로드 버튼 숨기기
+                    document.getElementById('excelDownloadBtn').style.display = 'none';
+                    excelDownloadData = null;
+                }
+            } catch (error) {
+                console.error('월별 관리비 내역 조회 오류:', error);
+                document.getElementById('manageMessage').innerHTML = 
+                    '<div class="message error">❌ 서버 연결에 실패했습니다.</div>';
+                    
+                // 엑셀 다운로드 버튼 숨기기
+                document.getElementById('excelDownloadBtn').style.display = 'none';
+                excelDownloadData = null;
+            }
+
+            setTimeout(() => {
+                document.getElementById('manageMessage').innerHTML = '';
+            }, 3000);
+        }
+
+        // 엑셀 다운로드 함수
+        async function downloadExcel() {
+            if (!excelDownloadData || excelDownloadData.length === 0) {
+                document.getElementById('manageMessage').innerHTML = 
+                    '<div class="message error">❌ 다운로드할 데이터가 없습니다. 먼저 월별 내역을 조회해주세요.</div>';
+                
+                setTimeout(() => {
+                    document.getElementById('manageMessage').innerHTML = '';
+                }, 3000);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/bills/excel`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(excelDownloadData)
+                });
+
+                if (response.ok) {
+                    // 파일 다운로드
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    
+                    // 파일명 생성 (월 정보 포함)
+                    const month = document.getElementById('manageMonth').value;
+                    const year = month.substring(0, 4);
+                    const monthStr = month.substring(4, 6);
+                    const filename = `관리비내역_${year}년${monthStr}월_${new Date().getTime()}.xlsx`;
+                    
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+
+                    document.getElementById('manageMessage').innerHTML = 
+                        '<div class="message success">✅ 엑셀 파일이 다운로드되었습니다!</div>';
+                } else {
+                    const error = await response.json();
+                    document.getElementById('manageMessage').innerHTML = 
+                        `<div class="message error">❌ 엑셀 다운로드 실패: ${error.error || '알 수 없는 오류'}</div>`;
+                }
+            } catch (error) {
+                console.error('엑셀 다운로드 오류:', error);
+                document.getElementById('manageMessage').innerHTML = 
+                    '<div class="message error">❌ 엑셀 다운로드 중 오류가 발생했습니다.</div>';
+            }
+
+            setTimeout(() => {
+                document.getElementById('manageMessage').innerHTML = '';
+            }, 3000);
+        }
+
+        // 관리비 계산 결과 표시
+        function displayBillResults(billData, month) {
+            const resultsArea = document.getElementById('resultsArea');
+            const resultsTitle = document.getElementById('resultsTitle');
+            
+            const year = month.substring(0, 4);
+            const monthStr = month.substring(4, 6);
+            
+            resultsTitle.textContent = `💰 ${year}년 ${monthStr}월 관리비 계산 결과`;
+
+            // 전체 합계 계산
+            let totalElectricity = 0;
+            let totalWater = 0;
+            let grandTotal = 0;
+            const roomCount = Object.keys(billData).length;
+
+            Object.values(billData).forEach(bill => {
+                totalElectricity += bill.ElectricityCostTotal || 0;
+                totalWater += bill.WaterCostTotal || 0;
+                grandTotal += bill.TotalCost || 0;
+            });
+
+            // 결과 HTML 생성
+            let resultsHtml = `
+                <div class="summary-card">
+                    <div class="summary-title">${year}년 ${monthStr}월 관리비 합계</div>
+                    <div class="summary-stats">
+                        <div class="summary-stat">
+                            <div class="stat-value">${roomCount.toLocaleString()}</div>
+                            <div class="stat-label">호실 수</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${totalElectricity.toLocaleString()}</div>
+                            <div class="stat-label">전기 총액 (원)</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${totalWater.toLocaleString()}</div>
+                            <div class="stat-label">수도 총액 (원)</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${grandTotal.toLocaleString()}</div>
+                            <div class="stat-label">관리비 총액 (원)</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // 각 호실별 결과
+            Object.entries(billData).forEach(([roomNumber, bill]) => {
+                resultsHtml += `
+                    <div class="bill-result">
+                        <div class="room-header">
+                            <div class="room-number">${roomNumber}호</div>
+                            <div class="total-amount">${bill.TotalCost.toLocaleString()}원</div>
+                        </div>
+                        <div class="bill-details">
+                            <div class="bill-category">
+                                <div class="category-title">전기 요금</div>
+                                <div class="category-items">
+                                    <div class="bill-item">
+                                        <span class="bill-label">기본 전기료</span>
+                                        <span class="bill-amount">${bill.ElectricityCost.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">공용 전기료</span>
+                                        <span class="bill-amount">${bill.ElectricityCostCommon.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">부가세</span>
+                                        <span class="bill-amount">${bill.ElectricityCostTax.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">기금</span>
+                                        <span class="bill-amount">${bill.ElectricityCostFund.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item bill-total">
+                                        <span class="bill-label">전기료 합계</span>
+                                        <span class="bill-amount">${bill.ElectricityCostTotal.toLocaleString()}원</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bill-category">
+                                <div class="category-title">수도 요금</div>
+                                <div class="category-items">
+                                    <div class="bill-item">
+                                        <span class="bill-label">상수도료</span>
+                                        <span class="bill-amount">${bill.WaterCostSupply.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">하수도료</span>
+                                        <span class="bill-amount">${bill.WaterCostSewer.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">공용 수도료</span>
+                                        <span class="bill-amount">${bill.WaterCostCommon.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item bill-total">
+                                        <span class="bill-label">수도료 합계</span>
+                                        <span class="bill-amount">${bill.WaterCostTotal.toLocaleString()}원</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            resultsArea.innerHTML = resultsHtml;
+        }
+
+        // 저장된 관리비 내역 표시
+        function displayBillHistoryResults(billHistories, month) {
+            const resultsArea = document.getElementById('resultsArea');
+            const resultsTitle = document.getElementById('resultsTitle');
+            
+            const year = month.substring(0, 4);
+            const monthStr = month.substring(4, 6);
+            
+            resultsTitle.textContent = `💰 ${year}년 ${monthStr}월 저장된 관리비 내역`;
+
+            if (!billHistories || billHistories.length === 0) {
+                resultsArea.innerHTML = 
+                    '<p style="text-align: center; color: #666; padding: 40px;">해당 월의 저장된 관리비 내역이 없습니다.</p>';
+                return;
+            }
+
+            // 전체 합계 계산
+            let totalElectricity = 0;
+            let totalWater = 0;
+            let grandTotal = 0;
+            const roomCount = billHistories.length;
+
+            billHistories.forEach(bill => {
+                totalElectricity += bill.ElectricityCostTotal || 0;
+                totalWater += bill.WaterCostTotal || 0;
+                grandTotal += bill.TotalCost || 0;
+            });
+
+            // 결과 HTML 생성
+            let resultsHtml = `
+                <div class="summary-card">
+                    <div class="summary-title">${year}년 ${monthStr}월 관리비 합계 (저장된 내역)</div>
+                    <div class="summary-stats">
+                        <div class="summary-stat">
+                            <div class="stat-value">${roomCount.toLocaleString()}</div>
+                            <div class="stat-label">호실 수</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${totalElectricity.toLocaleString()}</div>
+                            <div class="stat-label">전기 총액 (원)</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${totalWater.toLocaleString()}</div>
+                            <div class="stat-label">수도 총액 (원)</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${grandTotal.toLocaleString()}</div>
+                            <div class="stat-label">관리비 총액 (원)</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // 각 호실별 결과
+            billHistories.forEach(bill => {
+                resultsHtml += `
+                    <div class="bill-result">
+                        <div class="room-header">
+                            <div class="room-number">${bill.RoomNumber}</div>
+                            <div class="total-amount">${bill.TotalCost.toLocaleString()}원</div>
+                        </div>
+                        <div class="bill-details">
+                            <div class="bill-category">
+                                <div class="category-title">전기 요금</div>
+                                <div class="category-items">
+                                    <div class="bill-item">
+                                        <span class="bill-label">기본 전기료</span>
+                                        <span class="bill-amount">${bill.ElectricityCost.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">공용 전기료</span>
+                                        <span class="bill-amount">${bill.ElectricityCostCommon.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">부가세</span>
+                                        <span class="bill-amount">${bill.ElectricityCostTax.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">기금</span>
+                                        <span class="bill-amount">${bill.ElectricityCostFund.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item bill-total">
+                                        <span class="bill-label">전기료 합계</span>
+                                        <span class="bill-amount">${bill.ElectricityCostTotal.toLocaleString()}원</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bill-category">
+                                <div class="category-title">수도 요금</div>
+                                <div class="category-items">
+                                    <div class="bill-item">
+                                        <span class="bill-label">상수도료</span>
+                                        <span class="bill-amount">${bill.WaterCostSupply.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">하수도료</span>
+                                        <span class="bill-amount">${bill.WaterCostSewer.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item">
+                                        <span class="bill-label">공용 수도료</span>
+                                        <span class="bill-amount">${bill.WaterCostCommon.toLocaleString()}원</span>
+                                    </div>
+                                    <div class="bill-item bill-total">
+                                        <span class="bill-label">수도료 합계</span>
+                                        <span class="bill-amount">${bill.WaterCostTotal.toLocaleString()}원</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            resultsArea.innerHTML = resultsHtml;
+        }
+
+        // 전체 관리비 내역 표시 (그래프 형태로 선택된 월 기준 앞뒤 2달)
+        function displayAllBillHistories(billHistories) {
+            const resultsArea = document.getElementById('resultsArea');
+            const resultsTitle = document.getElementById('resultsTitle');
+            
+            // 선택된 월 가져오기 (관리비 내역 관리 카드의 월 선택값)
+            const selectedMonth = document.getElementById('manageMonth').value;
+            
+            if (!selectedMonth || selectedMonth.length !== 6) {
+                resultsArea.innerHTML = 
+                    '<p style="text-align: center; color: #e74c3c; padding: 40px;">먼저 월을 선택해주세요.</p>';
+                return;
+            }
+            
+            const selectedYear = parseInt(selectedMonth.substring(0, 4));
+            const selectedMonthNum = parseInt(selectedMonth.substring(4, 6));
+            
+            resultsTitle.textContent = `📊 월별 관리비 현황 (${selectedYear}년 ${selectedMonthNum.toString().padStart(2, '0')}월 기준 ±2개월)`;
+
+            if (!billHistories || billHistories.length === 0) {
+                resultsArea.innerHTML = 
+                    '<p style="text-align: center; color: #666; padding: 40px;">저장된 관리비 내역이 없습니다.</p>';
+                return;
+            }
+
+            // 선택된 월을 기준으로 앞뒤 2달 범위 계산 (총 5달)
+            const months = [];
+            for (let i = -2; i <= 2; i++) {
+                const targetDate = new Date(selectedYear, selectedMonthNum - 1 + i, 1);
+                const monthStr = targetDate.getFullYear().toString() + (targetDate.getMonth() + 1).toString().padStart(2, '0');
+                months.push(monthStr);
+            }
+
+            // 월별로 그룹화
+            const groupedByMonth = {};
+            billHistories.forEach(bill => {
+                if (!groupedByMonth[bill.ChargeMonth]) {
+                    groupedByMonth[bill.ChargeMonth] = [];
+                }
+                groupedByMonth[bill.ChargeMonth].push(bill);
+            });
+
+            // 5개월 데이터 생성
+            const chartData = months.map(month => {
+                const bills = groupedByMonth[month] || [];
+                const totalCost = bills.reduce((sum, bill) => sum + bill.TotalCost, 0);
+                const totalElectricity = bills.reduce((sum, bill) => sum + bill.ElectricityCostTotal, 0);
+                const totalWater = bills.reduce((sum, bill) => sum + bill.WaterCostTotal, 0);
+                const roomCount = bills.length;
+                
+                const year = month.substring(0, 4);
+                const monthStr = month.substring(4, 6);
+                
+                return {
+                    month: `${year}.${monthStr}`,
+                    totalCost,
+                    totalElectricity,
+                    totalWater,
+                    roomCount,
+                    isSelectedMonth: month === selectedMonth
+                };
+            });
+
+            // 전체 통계 계산
+            const totalRooms = Math.max(...chartData.map(d => d.roomCount));
+            const avgCost = chartData.reduce((sum, d) => sum + d.totalCost, 0) / chartData.filter(d => d.totalCost > 0).length;
+            const maxCost = Math.max(...chartData.map(d => d.totalCost));
+
+            let resultsHtml = `
+                <div class="summary-card">
+                    <div class="summary-title">${selectedYear}년 ${selectedMonthNum.toString().padStart(2, '0')}월 기준 관리비 현황</div>
+                    <div class="summary-stats">
+                        <div class="summary-stat">
+                            <div class="stat-value">${totalRooms.toLocaleString()}</div>
+                            <div class="stat-label">최대 호실 수</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${(avgCost && !isNaN(avgCost) ? Math.round(avgCost) : 0).toLocaleString()}</div>
+                            <div class="stat-label">평균 월 관리비 (원)</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${maxCost.toLocaleString()}</div>
+                            <div class="stat-label">최고 월 관리비 (원)</div>
+                        </div>
+                        <div class="summary-stat">
+                            <div class="stat-value">${chartData.filter(d => d.totalCost > 0).length}</div>
+                            <div class="stat-label">데이터 보유 월수</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: white; border-radius: 15px; padding: 25px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+                    <h3 style="margin-bottom: 20px; color: #333; text-align: center;">📈 월별 관리비 추이</h3>
+                    <div style="position: relative; height: 400px;">
+                        <canvas id="billChart"></canvas>
+                    </div>
+                </div>
+                
+                <div style="background: white; border-radius: 15px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+                    <h3 style="margin-bottom: 20px; color: #333; text-align: center;">💰 전기/수도 요금 비교</h3>
+                    <div style="position: relative; height: 300px;">
+                        <canvas id="utilityChart"></canvas>
+                    </div>
+                </div>
+                
+                <div style="background: #f8f9fa; border-radius: 10px; padding: 20px; margin-top: 20px;">
+                    <h4 style="margin-bottom: 15px; color: #333;">📋 월별 상세 데이터</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            `;
+
+            // 월별 상세 카드
+            chartData.forEach(data => {
+                const cardStyle = data.isSelectedMonth ? 
+                    'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;' : 
+                    'background: white; color: #333;';
+                const borderStyle = data.isSelectedMonth ? '' : 'border: 1px solid #e1e1e1;';
+                
+                resultsHtml += `
+                    <div style="${cardStyle} ${borderStyle} border-radius: 10px; padding: 15px; text-align: center;">
+                        <div style="font-weight: bold; margin-bottom: 10px; ${data.isSelectedMonth ? 'color: white;' : 'color: #667eea;'}">${data.month} ${data.isSelectedMonth ? '(선택월)' : ''}</div>
+                        <div style="font-size: 1.2rem; font-weight: bold; margin-bottom: 5px;">${data.totalCost.toLocaleString()}원</div>
+                        <div style="font-size: 0.85rem; opacity: 0.8;">
+                            전기: ${data.totalElectricity.toLocaleString()}원<br>
+                            수도: ${data.totalWater.toLocaleString()}원<br>
+                            호실: ${data.roomCount}개
+                        </div>
+                    </div>
+                `;
+            });
+
+            resultsHtml += `
+                    </div>
+                </div>
+            `;
+            
+            resultsArea.innerHTML = resultsHtml;
+
+            // 차트 생성
+            setTimeout(() => {
+                createBillCharts(chartData);
+            }, 100);
+        }
+
+        // 차트 생성 함수
+        function createBillCharts(data) {
+            // 기존 차트 제거
+            const existingChart1 = Chart.getChart("billChart");
+            if (existingChart1) existingChart1.destroy();
+            
+            const existingChart2 = Chart.getChart("utilityChart");
+            if (existingChart2) existingChart2.destroy();
+
+            // 총 관리비 차트
+            const ctx1 = document.getElementById('billChart');
+            if (ctx1) {
+                new Chart(ctx1, {
+                    type: 'bar',
+                    data: {
+                        labels: data.map(d => d.month),
+                        datasets: [{
+                            label: '총 관리비',
+                            data: data.map(d => d.totalCost),
+                            backgroundColor: data.map(d => d.isCurrentMonth ? 
+                                'rgba(231, 76, 60, 0.8)' : 'rgba(102, 126, 234, 0.8)'),
+                            borderColor: data.map(d => d.isCurrentMonth ? 
+                                'rgba(231, 76, 60, 1)' : 'rgba(102, 126, 234, 1)'),
+                            borderWidth: 2,
+                            borderRadius: 5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.parsed.y;
+                                        const dataPoint = data[context.dataIndex];
+                                        return [
+                                            `총 관리비: ${value.toLocaleString()}원`,
+                                            `호실 수: ${dataPoint.roomCount}개`
+                                        ];
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toLocaleString() + '원';
+                                    }
+                                },
+                                title: {
+                                    display: true,
+                                    text: '관리비 (원)'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: '월'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // 전기/수도 요금 비교 차트
+            const ctx2 = document.getElementById('utilityChart');
+            if (ctx2) {
+                new Chart(ctx2, {
+                    type: 'line',
+                    data: {
+                        labels: data.map(d => d.month),
+                        datasets: [
+                            {
+                                label: '전기 요금',
+                                data: data.map(d => d.totalElectricity),
+                                borderColor: 'rgba(255, 193, 7, 1)',
+                                backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                                borderWidth: 3,
+                                fill: true,
+                                tension: 0.3
+                            },
+                            {
+                                label: '수도 요금',
+                                data: data.map(d => d.totalWater),
+                                borderColor: 'rgba(52, 152, 219, 1)',
+                                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                                borderWidth: 3,
+                                fill: true,
+                                tension: 0.3
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'top'
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.dataset.label + ': ' + context.parsed.y.toLocaleString() + '원';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return value.toLocaleString() + '원';
+                                    }
+                                },
+                                title: {
+                                    display: true,
+                                    text: '요금 (원)'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: '월'
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        }
+                    }
+                });
+            }
+        }
+
+        // 월별 조회 함수
+        async function searchByMonth() {
+            const month = document.getElementById('searchMonth').value;
+            const buildingId = document.getElementById('searchBuildingSelect').value;
+            const floorId = document.getElementById('searchFloorSelect').value;
+            const roomId = document.getElementById('selectedSearchRoomId').value;
+            
+            if (!month || month.length !== 6) {
+                alert('올바른 월 형식을 입력해주세요 (YYYYMM)');
+                return;
+            }
+
+            try {
+                // 검색 파라미터 구성
+                let searchParams = new URLSearchParams({ month });
+                if (buildingId) searchParams.append('BuildingId', buildingId);
+                if (floorId) searchParams.append('FloorId', floorId);
+                if (roomId) searchParams.append('RoomId', roomId);
+                
+                const response = await fetch(`${API_BASE_URL}/bills/conditions?${searchParams.toString()}`);
+                
+                if (response.ok) {
+                    const bills = await response.json();
+                    displayResults(bills.data, month, { buildingId, floorId, roomId });
+                } else {
+                    document.getElementById('resultsArea').innerHTML = 
+                        '<p style="text-align: center; color: #e74c3c; padding: 40px;">해당 조건의 데이터를 찾을 수 없습니다.</p>';
+                    document.getElementById('resultsTitle').textContent = '📈 사용량 현황';
+                }
+            } catch (error) {
+                console.error('검색 오류:', error);
+                document.getElementById('resultsArea').innerHTML = 
+                    '<p style="text-align: center; color: #e74c3c; padding: 40px;">서버 연결에 실패했습니다.</p>';
+                document.getElementById('resultsTitle').textContent = '📈 사용량 현황';
+            }
+        }
+
+        // 검색 결과 표시
+        function displayResults(bills, month, filters = {}) {
+            const resultsArea = document.getElementById('resultsArea');
+            const resultsTitle = document.getElementById('resultsTitle');
+            
+            resultsTitle.textContent = '📈 사용량 현황';
+            
+            if (!bills || bills.length === 0) {
+                resultsArea.innerHTML = 
+                    '<p style="text-align: center; color: #666; padding: 40px;">해당 조건의 사용량 데이터가 없습니다.</p>';
+                return;
+            }
+
+            const year = month.substring(0, 4);
+            const monthStr = month.substring(4, 6);
+            
+            // 필터 텍스트 생성
+            let filterText = '';
+            if (filters.buildingId || filters.floorId || filters.roomId) {
+                const filterParts = [];
+                if (filters.buildingId) filterParts.push('선택된 건물');
+                if (filters.floorId) filterParts.push('선택된 층');
+                if (filters.roomId) filterParts.push('선택된 계량기');
+                filterText = ` (${filterParts.join(', ')})`;
+            }
+  
+            if (bills.length === 1) {
+                // 단일 계량기 결과
+                const bill = bills[0];
+                resultsArea.innerHTML = `
+                    <h3 style="text-align: center; margin-bottom: 25px; color: #333;">
+                        ${year}년 ${monthStr}월 사용량 현황${filterText}
+                    </h3>
+                    <div class="usage-display">
+                        <div class="usage-card">
+                            <h3>💧 수도 사용량</h3>
+                            <div class="usage-value">${(bill.WaterUsage || 0).toLocaleString()}</div>
+                            <div class="usage-unit">톤</div>
+                        </div>
+                        <div class="usage-card">
+                            <h3>⚡ 전기 사용량</h3>
+                            <div class="usage-value">${(bill.ElectricityUsage || 0).toLocaleString()}</div>
+                            <div class="usage-unit">kWh</div>
+                        </div>
+                    </div>
+                    ${bill.WaterBill || bill.ElectricityBill ? `
+                    <div class="usage-display" style="margin-top: 20px;">
+                        <div class="usage-card">
+                            <h3>💰 수도 요금</h3>
+                            <div class="usage-value">${(bill.WaterBill || 0).toLocaleString()}</div>
+                            <div class="usage-unit">원</div>
+                        </div>
+                        <div class="usage-card">
+                            <h3>💰 전기 요금</h3>
+                            <div class="usage-value">${(bill.ElectricityBill || 0).toLocaleString()}</div>
+                            <div class="usage-unit">원</div>
+                        </div>
+                    </div>
+                    ` : ''}
+                `;
+            } else {
+                // 여러 계량기 결과
+                const totalWater = bills.reduce((sum, bill) => sum + (bill.WaterUsage || 0), 0);
+                const totalElectricity = bills.reduce((sum, bill) => sum + (bill.ElectricityUsage || 0), 0);
+                const totalWaterMeasure = bills.reduce((sum, bill) => sum + (bill.WaterMeasure || 0), 0);
+                const totalElectricityMeasure = bills.reduce((sum, bill) => sum + (bill.ElectricityMeasure || 0), 0);
+                const totalWaterBill = bills.reduce((sum, bill) => sum + (bill.WaterBill || 0), 0);
+                const totalElectricityBill = bills.reduce((sum, bill) => sum + (bill.ElectricityBill || 0), 0);
+                
+                let billsHtml = bills.map(bill => `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr; gap: 10px; padding: 15px; border-bottom: 1px solid #eee; align-items: center;">
+                        <div><strong>${bill.Floor}층 - ${bill.RoomName}</strong></div>
+                        <div>${(bill.WaterUsage || 0).toLocaleString()}톤</div>
+                        <div>${(bill.ElectricityUsage || 0).toLocaleString()}kWh</div>
+                        <div>${(bill.WaterMeasure || 0).toLocaleString()}톤</div>
+                        <div>${(bill.ElectricityMeasure || 0).toLocaleString()}kWh</div>
+                        <div>${(bill.WaterBill || 0).toLocaleString()}원</div>
+                        <div>${(bill.ElectricityBill || 0).toLocaleString()}원</div>
+                    </div>
+                `).join('');
+                
+                resultsArea.innerHTML = `
+                    <h3 style="text-align: center; margin-bottom: 25px; color: #333;">
+                        ${year}년 ${monthStr}월 사용량 현황${filterText} (${bills.length.toLocaleString()}개 계량기)
+                    </h3>
+                    
+                    <!-- 전체 합계 -->
+                    <div class="usage-display" style="margin-bottom: 30px;">
+                        <div class="usage-card">
+                            <h3>💧 총 수도 사용량</h3>
+                            <div class="usage-value">${totalWater.toLocaleString()}</div>
+                            <div class="usage-unit">톤</div>
+                        </div>
+                        <div class="usage-card">
+                            <h3>⚡ 총 전기 사용량</h3>
+                            <div class="usage-value">${totalElectricity.toLocaleString()}</div>
+                            <div class="usage-unit">kWh</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 상세 목록 -->
+                    <div style="background: #f8f9fa; border-radius: 10px; padding: 20px;">
+                        <h4 style="margin-bottom: 15px; color: #333;">📋 계량기별 상세 현황</h4>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr; gap: 10px; padding: 10px; background: #667eea; color: white; border-radius: 5px; font-weight: bold; margin-bottom: 10px;">
+                            <div>계량기</div>
+                            <div>수도사용량</div>
+                            <div>전기사용량</div>
+                            <div>수도검침</div>
+                            <div>전기검침</div>
+                            <div>수도요금</div>
+                            <div>전기요금</div>
+                        </div>
+                        ${billsHtml}
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr; gap: 10px; padding: 15px; background: #e9ecef; border-radius: 5px; font-weight: bold; margin-top: 10px;">
+                            <div>합계</div>
+                            <div>${totalWater.toLocaleString()}톤</div>
+                            <div>${totalElectricity.toLocaleString()}kWh</div>
+                            <div>${totalWaterMeasure.toLocaleString()}톤</div>
+                            <div>${totalElectricityMeasure.toLocaleString()}kWh</div>
+                            <div>${totalWaterBill.toLocaleString()}원</div>
+                            <div>${totalElectricityBill.toLocaleString()}원</div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // 월 슬라이더 추가 기능: 키보드 화살표로 조작
+        document.addEventListener('keydown', function(e) {
+            const activeElement = document.activeElement;
+            if (activeElement && activeElement.classList.contains('month-slider')) {
+                // 슬라이더에서 키보드 조작 시 실시간 업데이트
+                setTimeout(() => {
+                    const sliderId = activeElement.id;
+                    const displayId = sliderId.replace('Slider', 'Display');
+                    const hiddenId = sliderId.replace('Slider', '');
+                    updateMonthFromSlider(sliderId, displayId, hiddenId);
+                }, 10);
+            }
+        });
+    </script>
+</body>
+</html>

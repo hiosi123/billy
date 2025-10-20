@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로그인 - 건물 관리비 시스템</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+
+        .login-title {
+            color: #333;
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .login-subtitle {
+            color: #666;
+            font-size: 1rem;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e1e1;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: #fafafa;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group input::placeholder {
+            color: #aaa;
+        }
+
+        .login-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
+        }
+
+        .login-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .message.loading {
+            background: #e2f3ff;
+            color: #0c5460;
+            border: 1px solid #b8daff;
+        }
+
+        .remember-me {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 25px;
+            font-size: 0.9rem;
+        }
+
+        .remember-me label {
+            display: flex;
+            align-items: center;
+            color: #666;
+            cursor: pointer;
+        }
+
+        .remember-me input[type="checkbox"] {
+            margin-right: 8px;
+            width: auto;
+        }
+
+        .forgot-password {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.3s ease;
+        }
+
+        .forgot-password:hover {
+            color: #5a67d8;
+            text-decoration: underline;
+        }
+
+        .footer-text {
+            margin-top: 30px;
+            color: #999;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+
+        .loading-spinner {
+            display: none;
+            margin-right: 8px;
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .btn-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 반응형 디자인 */
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 30px 25px;
+                margin: 10px;
+            }
+
+            .login-title {
+                font-size: 1.5rem;
+            }
+
+            .logo {
+                font-size: 2.5rem;
+            }
+        }
+
+        /* 다크모드 지원 */
+        @media (prefers-color-scheme: dark) {
+            .login-container {
+                background: #1a1a1a;
+                color: #e1e1e1;
+            }
+
+            .login-title {
+                color: #e1e1e1;
+            }
+
+            .form-group input {
+                background: #2a2a2a;
+                border-color: #444;
+                color: #e1e1e1;
+            }
+
+            .form-group input:focus {
+                background: #333;
+                border-color: #667eea;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">🏢</div>
+        <h1 class="login-title">건물 관리비 시스템</h1>
+        <p class="login-subtitle">계정에 로그인하여<br>시스템을 이용하세요</p>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">사용자명</label>
+                <input 
+                    type="text" 
+                    id="username" 
+                    name="username" 
+                    placeholder="사용자명을 입력하세요" 
+                    required
+                    autocomplete="username"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">비밀번호</label>
+                <input 
+                    type="password" 
+                    id="password" 
+                    name="password" 
+                    placeholder="비밀번호를 입력하세요" 
+                    required
+                    autocomplete="current-password"
+                >
+            </div>
+
+            <div class="remember-me">
+                <label>
+                    <input type="checkbox" id="rememberMe">
+                    로그인 상태 유지
+                </label>
+                <a href="#" class="forgot-password">비밀번호 찾기</a>
+            </div>
+
+            <button type="submit" class="login-btn" id="loginBtn">
+                <div class="btn-content">
+                    <div class="loading-spinner" id="loadingSpinner"></div>
+                    <span id="btnText">로그인</span>
+                </div>
+            </button>
+        </form>
+
+        <div id="message"></div>
+
+        <div class="footer-text">
+            보안을 위해 사용 후 반드시 로그아웃 해주세요.<br>
+            문의사항이 있으시면 시스템 관리자에게 연락하세요.
+        </div>
+    </div>
+
+    <script>
+        // API 기본 URL
+        const API_BASE_URL = '/api/v1';
+
+        // DOM 요소들
+        const loginForm = document.getElementById('loginForm');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const rememberMeCheckbox = document.getElementById('rememberMe');
+        const loginBtn = document.getElementById('loginBtn');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const btnText = document.getElementById('btnText');
+        const messageDiv = document.getElementById('message');
+
+        // 페이지 로드 시 실행
+        document.addEventListener('DOMContentLoaded', function() {
+            // 이미 로그인되어 있는지 확인
+            checkExistingLogin();
+            
+            // 저장된 사용자명 불러오기
+            loadSavedUsername();
+            
+            // 폼 이벤트 리스너
+            loginForm.addEventListener('submit', handleLogin);
+            
+            // Enter 키 처리
+            passwordInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    handleLogin(e);
+                }
+            });
+        });
+
+        // 기존 로그인 상태 확인
+        async function checkExistingLogin() {
+            try {
+                // 현재 사용자의 건물 정보를 가져와서 로그인 상태 확인
+                const response = await fetch(`${API_BASE_URL}/buildings/user`, {
+                    method: 'GET',
+                    credentials: 'include' // 쿠키 포함
+                });
+
+                if (response.ok) {
+                    // 이미 로그인되어 있음
+                    showMessage('이미 로그인되어 있습니다. 메인 페이지로 이동합니다.', 'success');
+                    setTimeout(() => {
+                        window.location.href = '/building';
+                    }, 1500);
+                } else if (response.status === 401) {
+                    // 인증되지 않음 (정상적인 로그인 페이지 접근)
+                    console.log('로그인 필요');
+                }
+            } catch (error) {
+                // 네트워크 오류 또는 서버 오류
+                console.log('로그인 상태 확인 중 오류:', error);
+            }
+        }
+
+        // 저장된 사용자명 불러오기
+        function loadSavedUsername() {
+            const savedUsername = localStorage.getItem('savedUsername');
+            if (savedUsername) {
+                usernameInput.value = savedUsername;
+                rememberMeCheckbox.checked = true;
+                passwordInput.focus(); // 비밀번호 필드에 포커스
+            } else {
+                usernameInput.focus(); // 사용자명 필드에 포커스
+            }
+        }
+
+        // 로그인 처리
+        async function handleLogin(e) {
+            e.preventDefault();
+
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+            const rememberMe = rememberMeCheckbox.checked;
+
+            // 유효성 검사
+            if (!username || !password) {
+                showMessage('사용자명과 비밀번호를 모두 입력해주세요.', 'error');
+                return;
+            }
+
+            // 로딩 상태 시작
+            setLoadingState(true);
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include', // 쿠키 포함
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // 로그인 성공
+                    showMessage('로그인 성공! 메인 페이지로 이동합니다.', 'success');
+                    
+                    // 사용자명 저장 (기억하기 체크된 경우)
+                    if (rememberMe) {
+                        localStorage.setItem('savedUsername', username);
+                    } else {
+                        localStorage.removeItem('savedUsername');
+                    }
+
+                    // 1.5초 후 메인 페이지로 이동
+                    setTimeout(() => {
+                        window.location.href = '/building';
+                    }, 1500);
+
+                } else {
+                    // 로그인 실패
+                    const errorMessage = result.error || result.message || '로그인에 실패했습니다.';
+                    showMessage(errorMessage, 'error');
+                    
+                    // 비밀번호 필드 초기화 및 포커스
+                    passwordInput.value = '';
+                    passwordInput.focus();
+                }
+
+            } catch (error) {
+                console.error('로그인 오류:', error);
+                showMessage('서버 연결에 실패했습니다. 네트워크를 확인해주세요.', 'error');
+            } finally {
+                // 로딩 상태 종료
+                setLoadingState(false);
+            }
+        }
+
+        // 로딩 상태 설정
+        function setLoadingState(isLoading) {
+            if (isLoading) {
+                loginBtn.disabled = true;
+                loadingSpinner.style.display = 'block';
+                btnText.textContent = '로그인 중...';
+            } else {
+                loginBtn.disabled = false;
+                loadingSpinner.style.display = 'none';
+                btnText.textContent = '로그인';
+            }
+        }
+
+        // 메시지 표시
+        function showMessage(message, type) {
+            messageDiv.innerHTML = `<div class="message ${type}">${message}</div>`;
+            
+            // 자동으로 메시지 제거 (에러 메시지는 더 오래 표시)
+            const timeout = type === 'error' ? 5000 : 3000;
+            setTimeout(() => {
+                messageDiv.innerHTML = '';
+            }, timeout);
+        }
+
+        // 비밀번호 찾기 (임시)
+        document.querySelector('.forgot-password').addEventListener('click', function(e) {
+            e.preventDefault();
+            showMessage('비밀번호 찾기 기능은 시스템 관리자에게 문의하세요.', 'error');
+        });
+    </script>
+</body>
+</html>
