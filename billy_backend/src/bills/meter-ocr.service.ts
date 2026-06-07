@@ -44,24 +44,26 @@ export class MeterOcrService {
         '당신은 한국 상수도(수도) 요금 고지서 사진에서 숫자 항목을 추출하는 도우미입니다. ' +
         '반드시 JSON 한 개만 출력하세요. 설명/코드블록 없이 순수 JSON.';
       userText =
-        '이 수도요금 고지서에서 다음 값을 숫자로만 추출해 JSON으로 답하세요. 못 찾으면 null.\n' +
-        '{\n' +
-        '  "waterTotalUsage": 당월 상수도 사용량(물 총 사용량, 톤),\n' +
-        '  "waterSupplyCost": 상수도 사용요금(원),\n' +
-        '  "waterSewerCost": 하수도 사용요금(원),\n' +
-        '  "waterTotalCost": 청구금액/수납금액 합계(원)\n' +
-        '}\n숫자에서 콤마는 제거하고 정수로. JSON만 출력.';
+        '이 수도요금 고지서의 "내역" 표를 보고 다음 값을 정확히 추출해 JSON으로만 답하세요.\n' +
+        '표는 보통 [내역 | 상수도 | 하수도(지하수) | 물이용부담금 | 계] 열로 되어 있습니다.\n' +
+        '- "waterSupplyCost": "상수도" 열의 "사용요금" 행 값(원). (상수도=수돗물 공급)\n' +
+        '- "waterSewerCost": "하수도" 또는 "하수도(지하수)" 열의 "사용요금" 행 값(원). 보통 상수도보다 큼.\n' +
+        '- "waterTotalUsage": 당월 물 사용량(톤). "사용량 비교"의 당월 상수도 값.\n' +
+        '- "waterTotalCost": 당월 청구금액 "계"(전체 합계, 원).\n' +
+        '⚠️ 상수도와 하수도 값을 절대 바꿔 쓰지 마세요. 물이용부담금은 사용요금이 아닙니다. 못 찾으면 null.\n' +
+        '콤마 제거하고 정수로. 순수 JSON만 출력.';
     } else {
       keys = ['electricityTotalCost', 'electricityTotalUsage'];
       system =
         '당신은 한국전력 전기요금 고지서 사진에서 숫자 항목을 추출하는 도우미입니다. ' +
         '반드시 JSON 한 개만 출력하세요. 설명/코드블록 없이 순수 JSON.';
       userText =
-        '이 전기요금 고지서에서 다음 값을 숫자로만 추출해 JSON으로 답하세요. 못 찾으면 null.\n' +
-        '{\n' +
-        '  "electricityTotalCost": 전기요금계(원, 부가세/기금 제외한 전력량요금+기본요금 합계),\n' +
-        '  "electricityTotalUsage": 당월 사용량(kWh)\n' +
-        '}\n숫자에서 콤마는 제거하고 정수로. JSON만 출력.';
+        '이 전기요금 고지서/명세서에서 다음을 정확히 추출해 JSON으로만 답하세요.\n' +
+        '- "electricityTotalCost": "전기요금계" 라고 명시된 금액(원). ' +
+        '이것은 기본요금+전력량요금의 소계이며, "청구금액"(총액)·"당월요금계"·부가가치세·전력기금과는 다릅니다. ' +
+        '반드시 "전기요금계" 라벨이 붙은 값을 찾으세요. 없으면 null.\n' +
+        '- "electricityTotalUsage": 당월 사용량(kWh). "사용량 비교"나 "지침 및 사용량"의 당월 합계 kWh. 금액(원)이 아니라 kWh 입니다.\n' +
+        '⚠️ 청구금액(총액)이나 세금을 electricityTotalCost로 쓰지 마세요. 콤마 제거, 정수. 순수 JSON만.';
     }
 
     const raw = await this.callVision(system, dto.image, dto.mediaType, userText, 200);
