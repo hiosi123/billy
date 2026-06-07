@@ -17,42 +17,8 @@ class RoomsTab extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: () => p.loadDetail(),
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 100),
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: StatTile(
-                  label: '층',
-                  value: '${p.floors.length}',
-                  icon: Icons.layers_outlined,
-                  color: BillyColors.primary,
-                  softColor: BillyColors.primarySoft,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: StatTile(
-                  label: '호실',
-                  value: '${p.rooms.length}',
-                  icon: Icons.meeting_room_outlined,
-                  color: BillyColors.water,
-                  softColor: BillyColors.waterSoft,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: StatTile(
-                  label: '총 면적',
-                  value: '${num2(p.floors.fold<double>(0, (s, f) => s + f.floorSpace))}㎡',
-                  icon: Icons.straighten_outlined,
-                  color: BillyColors.fee,
-                  softColor: BillyColors.feeSoft,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
           Row(
             children: [
               const Text('층 / 호실', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),

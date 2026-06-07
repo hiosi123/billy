@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Billy 앱 디자인 시안</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:'Apple SD Gothic Neo','Malgun Gothic',-apple-system,sans-serif; -webkit-font-smoothing:antialiased; }
+  body { background:#0f1115; padding:40px 20px 60px; color:#e8eaf0; }
+  .head { max-width:1300px; margin:0 auto 36px; }
+  .head h1 { font-size:26px; font-weight:900; letter-spacing:-.5px; }
+  .head p { color:#9aa3b2; margin-top:8px; font-size:14px; }
+  .row { display:flex; gap:40px; justify-content:center; flex-wrap:wrap; max-width:1300px; margin:0 auto; }
+  .col { width:390px; }
+  .label { text-align:center; margin-bottom:14px; }
+  .label .name { font-size:17px; font-weight:800; }
+  .label .desc { font-size:12.5px; color:#9aa3b2; margin-top:4px; line-height:1.5; }
+  /* phone frame */
+  .phone { width:390px; height:780px; border-radius:44px; padding:12px; background:#1c1f27; box-shadow:0 30px 60px rgba(0,0,0,.5); position:relative; }
+  .screen { width:100%; height:100%; border-radius:34px; overflow:hidden; position:relative; }
+  .sb { height:34px; display:flex; align-items:center; justify-content:space-between; padding:0 22px; font-size:13px; font-weight:700; }
+  .nav { position:absolute; bottom:0; left:0; right:0; height:64px; display:flex; }
+  .nav div { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:10px; font-weight:700; }
+  .ic { width:22px; height:22px; border-radius:7px; }
+  .money { font-variant-numeric:tabular-nums; }
+
+  /* ============ Concept A : 라이트 핀테크 ============ */
+  .a .screen { background:#f5f6fa; color:#1a1d29; }
+  .a .sb { background:#fff; color:#1a1d29; }
+  .a .top { padding:8px 20px 16px; background:#fff; }
+  .a .top .b { font-size:20px; font-weight:900; letter-spacing:-.5px; }
+  .a .top .s { font-size:12px; color:#8b93a7; margin-top:2px; }
+  .a .hero { margin:16px 20px; border-radius:22px; padding:22px; background:linear-gradient(135deg,#4f6bff,#7b5cff); color:#fff; box-shadow:0 14px 30px rgba(79,107,255,.35); }
+  .a .hero .t { font-size:13px; opacity:.85; font-weight:600; }
+  .a .hero .v { font-size:34px; font-weight:900; margin-top:6px; letter-spacing:-1px; }
+  .a .hero .r { display:flex; gap:18px; margin-top:16px; }
+  .a .hero .r b { font-size:15px; font-weight:800; display:block; }
+  .a .hero .r span { font-size:11px; opacity:.8; }
+  .a .tabs { display:flex; gap:8px; padding:0 20px; margin-bottom:6px; }
+  .a .tabs span { font-size:13px; font-weight:700; color:#8b93a7; padding:7px 13px; border-radius:20px; }
+  .a .tabs span.on { background:#eef1ff; color:#4f6bff; }
+  .a .card { background:#fff; margin:10px 20px; border-radius:18px; padding:15px 16px; display:flex; align-items:center; gap:12px; box-shadow:0 4px 14px rgba(20,25,45,.05); }
+  .a .num { width:42px; height:42px; border-radius:12px; background:#eef1ff; color:#4f6bff; font-weight:800; font-size:13px; display:flex; align-items:center; justify-content:center; }
+  .a .card .nm { font-weight:800; font-size:15px; }
+  .a .card .sub { font-size:11.5px; color:#8b93a7; margin-top:2px; }
+  .a .card .amt { margin-left:auto; font-weight:800; font-size:14px; }
+  .a .nav { background:#fff; border-top:1px solid #eceef4; }
+  .a .nav div { color:#b3bacb; }
+  .a .nav div.on { color:#4f6bff; }
+  .a .nav .ic { background:currentColor; opacity:.9; }
+
+  /* ============ Concept B : 다크 헤더 대시보드 ============ */
+  .b .screen { background:#eef0f5; color:#1a1d29; }
+  .b .sb { background:transparent; color:#fff; position:relative; z-index:2; }
+  .b .hd { background:linear-gradient(150deg,#1b2a4a,#2d4a7c); padding:6px 22px 70px; color:#fff; }
+  .b .hd .b { font-size:21px; font-weight:900; }
+  .b .hd .s { font-size:12px; opacity:.75; margin-top:2px; }
+  .b .kpis { display:flex; gap:10px; margin-top:18px; }
+  .b .kpi { flex:1; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); border-radius:16px; padding:13px; }
+  .b .kpi .t { font-size:10.5px; opacity:.8; }
+  .b .kpi .v { font-size:19px; font-weight:900; margin-top:4px; }
+  .b .sheet { background:#eef0f5; border-radius:24px 24px 0 0; margin-top:-46px; position:relative; padding:18px 20px 0; }
+  .b .seg { display:flex; background:#dfe3ec; border-radius:12px; padding:4px; margin-bottom:16px; }
+  .b .seg span { flex:1; text-align:center; font-size:12px; font-weight:700; color:#717a90; padding:8px; border-radius:9px; }
+  .b .seg span.on { background:#fff; color:#1b2a4a; box-shadow:0 2px 6px rgba(0,0,0,.08); }
+  .b .ai { background:#fff; border-radius:16px; padding:14px; margin-bottom:14px; box-shadow:0 6px 16px rgba(20,25,45,.06); }
+  .b .ai .h { font-size:12.5px; font-weight:800; color:#2d4a7c; display:flex; align-items:center; gap:6px; }
+  .b .ai .btns { display:flex; gap:9px; margin-top:11px; }
+  .b .ai .btns button { flex:1; border:0; border-radius:11px; padding:11px; font-size:12.5px; font-weight:800; color:#fff; display:flex; align-items:center; justify-content:center; gap:5px; }
+  .b .ai .bw { background:#1aa3e0; } .b .ai .be { background:#f5a623; }
+  .b .field { background:#fff; border-radius:14px; padding:13px 15px; margin-bottom:10px; }
+  .b .field .l { font-size:11px; color:#8b93a7; font-weight:600; }
+  .b .field .v { font-size:16px; font-weight:800; margin-top:3px; }
+  .b .nav { background:#fff; border-top:1px solid #e3e6ee; }
+  .b .nav div { color:#aab2c5; } .b .nav div.on { color:#2d4a7c; } .b .nav .ic{ background:currentColor; }
+
+  /* ============ Concept C : 소프트 카드 ============ */
+  .c .screen { background:#fcfaf7; color:#33302b; }
+  .c .sb { background:#fcfaf7; color:#33302b; }
+  .c .top { padding:10px 22px 4px; display:flex; align-items:center; gap:10px; }
+  .c .top .av { width:40px; height:40px; border-radius:14px; background:linear-gradient(135deg,#ffb66b,#ff8a5c); }
+  .c .top .b { font-size:19px; font-weight:900; } .c .top .s{ font-size:11.5px; color:#a89e90; }
+  .c .hero { margin:14px 20px; background:#fff; border-radius:26px; padding:20px; box-shadow:0 10px 26px rgba(120,100,70,.08); }
+  .c .hero .t { font-size:12.5px; color:#a89e90; font-weight:600; }
+  .c .hero .v { font-size:30px; font-weight:900; margin-top:5px; color:#ff8a5c; letter-spacing:-1px; }
+  .c .chips { display:flex; gap:8px; margin-top:14px; }
+  .c .chip { font-size:11px; font-weight:700; padding:6px 11px; border-radius:14px; }
+  .c .c1{background:#fff0e6;color:#ff8a5c} .c .c2{background:#e6f6ef;color:#27a878} .c .c3{background:#eaf0ff;color:#5b7cf5}
+  .c .sec { font-size:13px; font-weight:800; margin:16px 22px 8px; }
+  .c .card { background:#fff; margin:9px 20px; border-radius:20px; padding:15px 17px; display:flex; align-items:center; gap:13px; box-shadow:0 6px 16px rgba(120,100,70,.06); }
+  .c .ico { width:44px; height:44px; border-radius:15px; background:#fff0e6; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .c .card .nm { font-weight:800; font-size:15px; } .c .card .sub{ font-size:11.5px; color:#a89e90; margin-top:2px; }
+  .c .card .amt { margin-left:auto; font-weight:900; font-size:14px; color:#33302b; }
+  .c .nav { background:#fff; border-top:1px solid #f0ebe3; border-radius:24px 24px 0 0; }
+  .c .nav div { color:#c9bfb0; } .c .nav div.on { color:#ff8a5c; } .c .nav .ic{ background:currentColor; border-radius:11px; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Billy · 새 앱 디자인 시안</h1>
+    <p>같은 화면(건물 대시보드 / 검침·계산)을 3가지 스타일로. 마음에 드는 번호를 골라주세요 — 선택하시면 Flutter로 그대로 구현합니다.</p>
+  </div>
+  <div class="row">
+
+    <!-- ============ A ============ -->
+    <div class="col">
+      <div class="label"><div class="name">시안 A · 라이트 핀테크</div><div class="desc">토스/뱅크샐러드 느낌. 흰 배경 + 보라블루 포인트,<br>큰 금액 카드, 둥근 알약 탭, 하단 네비</div></div>
+      <div class="phone a">
+        <div class="screen">
+          <div class="sb"><span>9:41</span><span>● ● ●</span></div>
+          <div class="top"><div class="b">새아여성의원</div><div class="s">부산시 반여2동 · 11호실</div></div>
+          <div class="hero">
+            <div class="t">2026년 5월 총 관리비</div>
+            <div class="v money">55,461,686원</div>
+            <div class="r"><div><b class="money">46,591,499</b><span>전기 총액</span></div><div><b class="money">8,870,180</b><span>수도 총액</span></div></div>
+          </div>
+          <div class="tabs"><span class="on">호실</span><span>검침</span><span>계산</span><span>내역</span></div>
+          <div class="card"><div class="num">101</div><div><div class="nm">KTF</div><div class="sub">118.8㎡ · 1층</div></div><div class="amt money">314,066원</div></div>
+          <div class="card"><div class="num">102</div><div><div class="nm">약국</div><div class="sub">49.9㎡ · 1층</div></div><div class="amt money">122,245원</div></div>
+          <div class="card"><div class="num">201</div><div><div class="nm">천리안안과</div><div class="sub">255.9㎡ · 2층</div></div><div class="amt money">677,470원</div></div>
+          <div class="nav">
+            <div class="on"><div class="ic"></div>대시보드</div><div><div class="ic"></div>검침</div><div><div class="ic"></div>계산</div><div><div class="ic"></div>내역</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ B ============ -->
+    <div class="col">
+      <div class="label"><div class="name">시안 B · 다크 헤더 대시보드</div><div class="desc">네이비 헤더에 핵심 지표(KPI), 흰 시트가 겹쳐 올라옴.<br>AI 고지서 버튼이 눈에 띄는 업무용 톤</div></div>
+      <div class="phone b">
+        <div class="screen">
+          <div class="hd">
+            <div class="sb"><span>9:41</span><span>● ● ●</span></div>
+            <div class="b">새아여성의원</div><div class="s">2026년 5월분 관리비</div>
+            <div class="kpis">
+              <div class="kpi"><div class="t">총 관리비</div><div class="v money">55.4M</div></div>
+              <div class="kpi"><div class="t">호실</div><div class="v">11</div></div>
+              <div class="kpi"><div class="t">총 면적</div><div class="v">1,797㎡</div></div>
+            </div>
+          </div>
+          <div class="sheet">
+            <div class="seg"><span>호실</span><span>검침</span><span class="on">관리비 계산</span><span>내역</span></div>
+            <div class="ai">
+              <div class="h">✨ 고지서 사진을 찍으면 AI가 합계를 자동 입력</div>
+              <div class="btns"><button class="bw">📷 수도 고지서</button><button class="be">📷 전기 고지서</button></div>
+            </div>
+            <div class="field"><div class="l">전체 전기요금</div><div class="v money">3,478,233 원</div></div>
+            <div class="field"><div class="l">전체 전기사용량</div><div class="v money">18,605 kWh</div></div>
+          </div>
+          <div class="nav">
+            <div class="on"><div class="ic"></div>홈</div><div><div class="ic"></div>검침</div><div><div class="ic"></div>계산</div><div><div class="ic"></div>내역</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ C ============ -->
+    <div class="col">
+      <div class="label"><div class="name">시안 C · 소프트 카드</div><div class="desc">따뜻한 크림 배경 + 코랄 포인트, 크고 둥근 카드와<br>넉넉한 터치영역. 친근하지만 깔끔한 톤</div></div>
+      <div class="phone c">
+        <div class="screen">
+          <div class="sb"><span>9:41</span><span>● ● ●</span></div>
+          <div class="top"><div class="av"></div><div><div class="b">새아여성의원</div><div class="s">부산시 반여2동</div></div></div>
+          <div class="hero">
+            <div class="t">2026년 5월 총 관리비</div>
+            <div class="v money">55,461,686원</div>
+            <div class="chips"><span class="chip c1">전기 46.5M</span><span class="chip c2">수도 8.8M</span><span class="chip c3">호실 11</span></div>
+          </div>
+          <div class="sec">층 / 호실</div>
+          <div class="card"><div class="ico">🏢</div><div><div class="nm">KTF</div><div class="sub">101 · 118.8㎡</div></div><div class="amt money">314,066원</div></div>
+          <div class="card"><div class="ico">💊</div><div><div class="nm">약국</div><div class="sub">102 · 49.9㎡</div></div><div class="amt money">122,245원</div></div>
+          <div class="card"><div class="ico">🏥</div><div><div class="nm">천리안안과</div><div class="sub">201 · 255.9㎡</div></div><div class="amt money">677,470원</div></div>
+          <div class="nav">
+            <div class="on"><div class="ic"></div>홈</div><div><div class="ic"></div>검침</div><div><div class="ic"></div>계산</div><div><div class="ic"></div>내역</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

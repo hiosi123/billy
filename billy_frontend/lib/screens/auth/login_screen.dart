@@ -49,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(gradient: BillyColors.brandGradient),
+        decoration: const BoxDecoration(gradient: BillyColors.headerGradient),
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),

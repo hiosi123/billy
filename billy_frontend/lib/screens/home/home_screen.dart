@@ -144,9 +144,9 @@ class _HeaderBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        gradient: BillyColors.brandGradient,
+        gradient: BillyColors.headerGradient,
         borderRadius: BorderRadius.circular(18),
-        boxShadow: BillyColors.glow(BillyColors.primary),
+        boxShadow: BillyColors.glow(BillyColors.headerEnd),
       ),
       padding: const EdgeInsets.all(20),
       child: Row(

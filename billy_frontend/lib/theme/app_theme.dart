@@ -45,6 +45,15 @@ class BillyColors {
     colors: [primaryStart, primaryEnd],
   );
 
+  // 다크 헤더 대시보드 — 네이비 헤더
+  static const headerStart = Color(0xFF1B2A4A);
+  static const headerEnd = Color(0xFF2D4A7C);
+  static const LinearGradient headerGradient = LinearGradient(
+    begin: Alignment(-0.8, -1),
+    end: Alignment(1, 1),
+    colors: [headerStart, headerEnd],
+  );
+
   static List<BoxShadow> get cardShadow => [
         BoxShadow(
           color: const Color(0xFF1E293B).withValues(alpha: 0.06),
