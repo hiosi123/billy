@@ -55,6 +55,7 @@ class BillHistory {
   Map<String, dynamic> toExcelJson() => {
         'BuildingId': buildingId,
         'RoomNumber': roomNumber,
+        'ChargeMonth': chargeMonth,
         'ElectricityCost': electricityCost,
         'ElectricityCostCommon': electricityCostCommon,
         'ElectricityCostTax': electricityCostTax,

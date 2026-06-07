@@ -3,13 +3,14 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Bill } from './bill.entity';
 import { BillsService } from './bills.service';
 import { ExcelService } from './excel.service';
+import { MeterOcrService } from './meter-ocr.service';
 import { BillsController } from './bills.controller';
 import { RoomsModule } from '../rooms/rooms.module';
 import { BuildingFeesModule } from '../building-fees/building-fees.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Bill]), RoomsModule, BuildingFeesModule],
-  providers: [BillsService, ExcelService],
+  providers: [BillsService, ExcelService, MeterOcrService],
   controllers: [BillsController],
   exports: [BillsService, TypeOrmModule],
 })

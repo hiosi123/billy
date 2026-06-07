@@ -98,6 +98,22 @@ class ApiService {
   /// 검침값 입력 → 사용량 계산 후 이번달 청구 생성/갱신.
   Future<void> insertMeasure(Map<String, dynamic> usage) async => await _post('/bills/measurements', usage);
 
+  /// 계량기 사진(base64) → AI OCR 지침값. 인식 실패 시 null.
+  Future<num?> readMeter({
+    required String image,
+    required String type,
+    double? lastValue,
+    String mediaType = 'image/jpeg',
+  }) async {
+    final res = await _post('/bills/read-meter', {
+      'image': image,
+      'type': type,
+      if (lastValue != null) 'lastValue': lastValue,
+      'mediaType': mediaType,
+    }) as Map;
+    return res['value'] as num?;
+  }
+
   /// 관리비 계산. 응답은 roomNumber → 결과 맵.
   Future<List<CalcResult>> calculateBill(Map<String, dynamic> req) async {
     final res = await _post('/bills/calculate', req) as Map<String, dynamic>;

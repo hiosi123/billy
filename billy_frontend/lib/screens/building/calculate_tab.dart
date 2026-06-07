@@ -65,7 +65,8 @@ class _CalculateTabState extends State<CalculateTab> {
       return;
     }
     try {
-      final bytes = await p.api.makeBillExcel(_results.map((e) => e.toExcelJson()).toList());
+      final bytes = await p.api.makeBillExcel(
+          _results.map((e) => {...e.toExcelJson(), 'ChargeMonth': p.chargeMonth}).toList());
       final name = await saveXlsx(bytes, 'bills_${p.chargeMonth}.xlsx');
       if (mounted) showSnack(context, '엑셀 명세서 생성 완료 ($name)');
     } catch (e) {
@@ -196,7 +197,11 @@ class _CalculateTabState extends State<CalculateTab> {
     );
   }
 
-  Widget _field2(Widget a, Widget b) => Row(children: [Expanded(child: a), const SizedBox(width: 12), Expanded(child: b)]);
+  Widget _field2(Widget a, Widget b) => LayoutBuilder(
+        builder: (context, c) => c.maxWidth < 380
+            ? Column(children: [a, const SizedBox(height: 12), b])
+            : Row(children: [Expanded(child: a), const SizedBox(width: 12), Expanded(child: b)]),
+      );
 }
 
 class _LabeledField extends StatelessWidget {

@@ -129,21 +129,36 @@ export class ExcelService {
     bill: ExcelBillDto,
     fees: Record<string, number>,
   ): Record<string, string> {
-    const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
 
-    const year = String(now.getFullYear());
-    const month = pad(now.getMonth() + 1);
-    const date = pad(now.getDate());
+    // 사용월(charge_month) 기준. 고지서 규칙: "(month)월 고지서 = (lMonth)월 사용분".
+    //  → (lMonth)=사용월, (month)=사용월+1.  charge_month 가 없으면 legacy(오늘 기준)로 폴백.
+    let usageYear: number;
+    let usageMonth0: number; // 0-based 사용월
+    if (bill.ChargeMonth && /^\d{6}$/.test(bill.ChargeMonth)) {
+      usageYear = parseInt(bill.ChargeMonth.slice(0, 4), 10);
+      usageMonth0 = parseInt(bill.ChargeMonth.slice(4, 6), 10) - 1;
+    } else {
+      const now = new Date();
+      usageYear = now.getFullYear();
+      usageMonth0 = now.getMonth() - 1; // 사용월 = 지난달
+    }
 
-    const last = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lYear = String(last.getFullYear());
-    const lMonth = pad(last.getMonth() + 1);
+    const usage = new Date(usageYear, usageMonth0, 1); // 사용월
+    const invoice = new Date(usageYear, usageMonth0 + 1, 1); // 고지서월 = 사용월 + 1
+    const lastlast = new Date(usageYear, usageMonth0 - 1, 1); // 사용 전월
 
-    const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
-    const lastDayOfCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const usageLastDay = new Date(usage.getFullYear(), usage.getMonth() + 1, 0).getDate();
+    const invoiceLastDay = new Date(invoice.getFullYear(), invoice.getMonth() + 1, 0).getDate();
+    const issueDay = Math.min(new Date().getDate(), invoiceLastDay); // 발행일 = 고지서월 + 오늘 일자
 
-    const lastlast = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const year = String(invoice.getFullYear());
+    const month = pad(invoice.getMonth() + 1);
+    const date = pad(issueDay);
+    const lYear = String(usage.getFullYear());
+    const lMonth = pad(usage.getMonth() + 1);
+    const lastDayOfLastMonth = usageLastDay;
+    const lastDayOfCurrentMonth = invoiceLastDay;
     const llYear = String(lastlast.getFullYear());
     const llMonth = pad(lastlast.getMonth() + 1);
 

@@ -1,5 +1,8 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../providers/app_provider.dart';
 import '../../models/bill.dart';
@@ -95,6 +98,56 @@ class _MeasureTabState extends State<MeasureTab> {
     }
   }
 
+  /// 계량기 사진 촬영/선택 → AI OCR → 지침 필드 자동 입력. (type: 'water'|'electricity')
+  Future<void> _pickAndRead(String type, TextEditingController ctl, double? lastValue) async {
+    final picker = ImagePicker();
+    ImageSource source = ImageSource.gallery;
+    if (!kIsWeb) {
+      final picked = await showModalBottomSheet<ImageSource>(
+        context: context,
+        builder: (_) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('카메라로 촬영'),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('갤러리에서 선택'),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (picked == null) return;
+      source = picked;
+    }
+
+    final XFile? file = await picker.pickImage(source: source, imageQuality: 70, maxWidth: 1600);
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    final b64 = base64Encode(bytes);
+    final media = file.name.toLowerCase().endsWith('.png') ? 'image/png' : (file.mimeType ?? 'image/jpeg');
+    if (!mounted) return;
+    final api = context.read<AppProvider>().api;
+    try {
+      final value = await api.readMeter(image: b64, type: type, lastValue: lastValue, mediaType: media);
+      if (!mounted) return;
+      if (value != null) {
+        ctl.text = num2(value);
+        showSnack(context, '인식 완료: ${num2(value)}');
+      } else {
+        showSnack(context, '계량기 숫자를 인식하지 못했습니다. 직접 입력해주세요', error: true);
+      }
+    } catch (e) {
+      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.watch<AppProvider>();
@@ -143,6 +196,7 @@ class _MeasureTabState extends State<MeasureTab> {
                 waterCtl: _water[r.roomId]!,
                 elecCtl: _elec[r.roomId]!,
                 onSave: () => _save(r),
+                onPickPhoto: _pickAndRead,
               )),
       ],
     );
@@ -156,6 +210,7 @@ class _MeasureCard extends StatelessWidget {
   final TextEditingController waterCtl;
   final TextEditingController elecCtl;
   final VoidCallback onSave;
+  final Future<void> Function(String type, TextEditingController ctl, double? lastValue) onPickPhoto;
 
   const _MeasureCard({
     required this.room,
@@ -164,6 +219,7 @@ class _MeasureCard extends StatelessWidget {
     required this.waterCtl,
     required this.elecCtl,
     required this.onSave,
+    required this.onPickPhoto,
   });
 
   @override
@@ -214,26 +270,32 @@ class _MeasureCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _MeasureField(
-                  label: '수도 지침',
-                  controller: waterCtl,
-                  color: BillyColors.water,
-                  usage: info?.waterUsage,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _MeasureField(
-                  label: '전기 지침',
-                  controller: elecCtl,
-                  color: BillyColors.electricity,
-                  usage: info?.electricityUsage,
-                ),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, c) {
+              final water = _MeasureField(
+                label: '수도 지침',
+                controller: waterCtl,
+                color: BillyColors.water,
+                usage: info?.waterUsage,
+                onPhoto: () => onPickPhoto('water', waterCtl, lastInfo?.waterMeasure),
+              );
+              final elec = _MeasureField(
+                label: '전기 지침',
+                controller: elecCtl,
+                color: BillyColors.electricity,
+                usage: info?.electricityUsage,
+                onPhoto: () => onPickPhoto('electricity', elecCtl, lastInfo?.electricityMeasure),
+              );
+              // 좁은 화면(앱)에서는 세로로 쌓아 입력 편의 ↑
+              if (c.maxWidth < 380) {
+                return Column(children: [water, const SizedBox(height: 14), elec]);
+              }
+              return Row(children: [
+                Expanded(child: water),
+                const SizedBox(width: 12),
+                Expanded(child: elec),
+              ]);
+            },
           ),
           const SizedBox(height: 12),
           Align(
@@ -261,7 +323,14 @@ class _MeasureField extends StatelessWidget {
   final TextEditingController controller;
   final Color color;
   final double? usage;
-  const _MeasureField({required this.label, required this.controller, required this.color, this.usage});
+  final Future<void> Function()? onPhoto;
+  const _MeasureField({
+    required this.label,
+    required this.controller,
+    required this.color,
+    this.usage,
+    this.onPhoto,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -273,6 +342,8 @@ class _MeasureField extends StatelessWidget {
             Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
             const SizedBox(width: 6),
             Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+            const Spacer(),
+            if (onPhoto != null) _CamButton(color: color, onTap: onPhoto!),
           ],
         ),
         const SizedBox(height: 6),
@@ -287,6 +358,55 @@ class _MeasureField extends StatelessWidget {
             child: Text('사용량 ${num2(usage)}', style: const TextStyle(fontSize: 11, color: BillyColors.textSecondary)),
           ),
       ],
+    );
+  }
+}
+
+/// 계량기 사진 촬영 버튼(처리 중 스피너 표시).
+class _CamButton extends StatefulWidget {
+  final Color color;
+  final Future<void> Function() onTap;
+  const _CamButton({required this.color, required this.onTap});
+
+  @override
+  State<_CamButton> createState() => _CamButtonState();
+}
+
+class _CamButtonState extends State<_CamButton> {
+  bool _busy = false;
+
+  Future<void> _run() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onTap();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: _busy ? null : _run,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: widget.color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: _busy
+            ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: widget.color))
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.photo_camera_outlined, size: 14, color: widget.color),
+                  const SizedBox(width: 3),
+                  Text('AI', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: widget.color)),
+                ],
+              ),
+      ),
     );
   }
 }

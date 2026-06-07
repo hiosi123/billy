@@ -14,10 +14,12 @@ import {
 import { Response } from 'express';
 import { BillsService } from './bills.service';
 import { ExcelService } from './excel.service';
+import { MeterOcrService } from './meter-ocr.service';
 import { CreateBillDto } from './dto/create-bill.dto';
 import { UsageDto } from './dto/usage.dto';
 import { CalculateBillDto } from './dto/calculate-bill.dto';
 import { ExcelBillDto } from './dto/excel-bill.dto';
+import { ReadMeterDto } from './dto/read-meter.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
@@ -26,6 +28,7 @@ export class BillsController {
   constructor(
     private readonly billsService: BillsService,
     private readonly excelService: ExcelService,
+    private readonly meterOcrService: MeterOcrService,
   ) {}
 
   @Get()
@@ -57,6 +60,12 @@ export class BillsController {
   @Post('calculate')
   calculate(@Body() req: CalculateBillDto) {
     return this.billsService.calculate(req);
+  }
+
+  /** 계량기 사진 → AI OCR로 지침값 읽기. */
+  @Post('read-meter')
+  readMeter(@Body() dto: ReadMeterDto) {
+    return this.meterOcrService.readMeter(dto);
   }
 
   @Post('excel')
