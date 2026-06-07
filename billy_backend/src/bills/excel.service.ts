@@ -50,7 +50,13 @@ export class ExcelService {
     const template = wb.getWorksheet(TEMPLATE_SHEET);
     if (!template) throw new InternalServerErrorException(`템플릿 시트 '${TEMPLATE_SHEET}'가 없습니다`);
 
-    const usedNames = new Set<string>();
+    // 레거시 Go 앱이 템플릿에 방 시트를 저장해둔 경우가 있어 'bill' 외 시트는 모두 제거한다.
+    // (안 그러면 동일 이름 시트 추가 시 exceljs가 "Worksheet name already exists" 로 크래시)
+    for (const sheet of [...wb.worksheets]) {
+      if (sheet.id !== template.id) wb.removeWorksheet(sheet.id);
+    }
+
+    const usedNames = new Set<string>([TEMPLATE_SHEET]);
     let created = 0;
 
     for (const bill of bills) {
@@ -101,7 +107,7 @@ export class ExcelService {
         totalLateCost,
       });
 
-      const sheetName = this.uniqueSheetName(room.roomName, usedNames);
+      const sheetName = this.uniqueSheetName(wb, room.roomName, usedNames);
       this.cloneSheet(wb, template, sheetName, replacements);
       created++;
     }
@@ -247,12 +253,13 @@ export class ExcelService {
     return value;
   }
 
-  /** 엑셀 시트명 제약(31자, 특수문자 금지, 중복 금지) 처리. */
-  private uniqueSheetName(raw: string, used: Set<string>): string {
-    let base = (raw || 'sheet').replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 28) || 'sheet';
+  /** 엑셀 시트명 제약(31자, 특수문자 금지, 워크북 내 중복 금지) 처리. */
+  private uniqueSheetName(wb: ExcelJS.Workbook, raw: string, used: Set<string>): string {
+    const base = (raw || 'sheet').replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 28) || 'sheet';
     let name = base;
     let i = 1;
-    while (used.has(name)) {
+    // used(이번 실행 추가분) + 워크북에 이미 존재하는 시트 모두 회피
+    while (used.has(name) || wb.getWorksheet(name)) {
       name = `${base.slice(0, 25)}_${i++}`;
     }
     used.add(name);
