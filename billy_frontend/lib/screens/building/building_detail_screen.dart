@@ -6,6 +6,7 @@ import '../../widgets/common.dart';
 import 'rooms_tab.dart';
 import 'measure_tab.dart';
 import 'calculate_tab.dart';
+import 'history_tab.dart';
 import 'fee_settings_tab.dart';
 
 class BuildingDetailScreen extends StatelessWidget {
@@ -20,7 +21,7 @@ class BuildingDetailScreen extends StatelessWidget {
     }
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: Column(
@@ -52,6 +53,7 @@ class BuildingDetailScreen extends StatelessWidget {
               Tab(text: '호실'),
               Tab(text: '검침 입력'),
               Tab(text: '관리비 계산'),
+              Tab(text: '관리비 내역'),
               Tab(text: '관리비 설정'),
             ],
           ),
@@ -63,6 +65,7 @@ class BuildingDetailScreen extends StatelessWidget {
                   RoomsTab(),
                   MeasureTab(),
                   CalculateTab(),
+                  HistoryTab(),
                   FeeSettingsTab(),
                 ],
               ),

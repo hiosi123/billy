@@ -73,6 +73,34 @@ class _CalculateTabState extends State<CalculateTab> {
     }
   }
 
+  Future<void> _saveHistory() async {
+    final p = context.read<AppProvider>();
+    if (_results.isEmpty) return;
+    try {
+      final payload = _results
+          .map((r) => {
+                'roomNumber': r.roomNumber,
+                'chargeMonth': p.chargeMonth,
+                'electricityCost': r.electricityCost,
+                'electricityCostCommon': r.electricityCostCommon,
+                'electricityCostTax': r.electricityCostTax,
+                'electricityCostFund': r.electricityCostFund,
+                'electricityCostTotal': r.electricityCostTotal,
+                'waterCostSupply': r.waterCostSupply,
+                'waterCostSewer': r.waterCostSewer,
+                'waterCostCommon': r.waterCostCommon,
+                'waterCostTotal': r.waterCostTotal,
+                'totalCost': r.totalCost,
+                'buildingId': r.buildingId,
+              })
+          .toList();
+      await p.api.saveBillHistories(payload);
+      if (mounted) showSnack(context, '관리비 내역이 저장되었습니다 (관리비 내역 탭에서 확인)');
+    } catch (e) {
+      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.watch<AppProvider>();
@@ -148,6 +176,17 @@ class _CalculateTabState extends State<CalculateTab> {
                   label: const Text('엑셀', style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: AsyncButton(
+              label: '이번 계산 내역 저장',
+              icon: Icons.bookmark_added_outlined,
+              color: BillyColors.success,
+              onPressed: _saveHistory,
             ),
           ),
           const SizedBox(height: 14),

@@ -18,8 +18,16 @@ class MeasureTab extends StatefulWidget {
 class _MeasureTabState extends State<MeasureTab> {
   bool _loading = false;
   Map<int, BillInfo> _byRoom = {}; // roomId -> 이번달 청구
+  Map<int, BillInfo> _lastByRoom = {}; // roomId -> 지난달 청구(검침값 표시용)
   final Map<int, TextEditingController> _water = {};
   final Map<int, TextEditingController> _elec = {};
+
+  static String _prevMonth(String yyyymm) {
+    final y = int.parse(yyyymm.substring(0, 4));
+    final m = int.parse(yyyymm.substring(4, 6));
+    final d = DateTime(y, m - 1, 1);
+    return '${d.year}${d.month.toString().padLeft(2, '0')}';
+  }
 
   @override
   void initState() {
@@ -42,8 +50,13 @@ class _MeasureTabState extends State<MeasureTab> {
     final p = context.read<AppProvider>();
     setState(() => _loading = true);
     try {
-      final infos = await p.api.getBillsByCondition(month: p.chargeMonth, buildingId: p.selectedBuilding!.buildingId);
-      _byRoom = {for (final i in infos) i.roomId: i};
+      final buildingId = p.selectedBuilding!.buildingId;
+      final results = await Future.wait([
+        p.api.getBillsByCondition(month: p.chargeMonth, buildingId: buildingId),
+        p.api.getBillsByCondition(month: _prevMonth(p.chargeMonth), buildingId: buildingId),
+      ]);
+      _byRoom = {for (final i in results[0]) i.roomId: i};
+      _lastByRoom = {for (final i in results[1]) i.roomId: i};
       for (final r in p.rooms) {
         final info = _byRoom[r.roomId];
         final wc = _water.putIfAbsent(r.roomId, () => TextEditingController());
@@ -53,6 +66,7 @@ class _MeasureTabState extends State<MeasureTab> {
       }
     } catch (_) {
       _byRoom = {};
+      _lastByRoom = {};
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -125,6 +139,7 @@ class _MeasureTabState extends State<MeasureTab> {
           ...rooms.map((r) => _MeasureCard(
                 room: r,
                 info: _byRoom[r.roomId],
+                lastInfo: _lastByRoom[r.roomId],
                 waterCtl: _water[r.roomId]!,
                 elecCtl: _elec[r.roomId]!,
                 onSave: () => _save(r),
@@ -137,6 +152,7 @@ class _MeasureTabState extends State<MeasureTab> {
 class _MeasureCard extends StatelessWidget {
   final Room room;
   final BillInfo? info;
+  final BillInfo? lastInfo;
   final TextEditingController waterCtl;
   final TextEditingController elecCtl;
   final VoidCallback onSave;
@@ -144,6 +160,7 @@ class _MeasureCard extends StatelessWidget {
   const _MeasureCard({
     required this.room,
     required this.info,
+    required this.lastInfo,
     required this.waterCtl,
     required this.elecCtl,
     required this.onSave,
@@ -176,6 +193,26 @@ class _MeasureCard extends StatelessWidget {
                 const BillyBadge('사용량 계산됨', color: BillyColors.success),
             ],
           ),
+          if (lastInfo != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(color: BillyColors.surfaceAlt, borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                children: [
+                  const Icon(Icons.history_rounded, size: 13, color: BillyColors.textHint),
+                  const SizedBox(width: 6),
+                  Text('지난달 검침',
+                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: BillyColors.textSecondary)),
+                  const Spacer(),
+                  _lastChip('수도', num2(lastInfo!.waterMeasure), BillyColors.water),
+                  const SizedBox(width: 8),
+                  _lastChip('전기', num2(lastInfo!.electricityMeasure), BillyColors.electricity),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           Row(
             children: [
@@ -205,6 +242,16 @@ class _MeasureCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _lastChip(String label, String value, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('$label ', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+        Text(value, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: BillyColors.textPrimary)),
+      ],
     );
   }
 }

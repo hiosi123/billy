@@ -7,6 +7,7 @@ import '../models/room.dart';
 import '../models/bill.dart';
 import '../models/building_fee.dart';
 import '../models/calc_result.dart';
+import '../models/bill_history.dart';
 
 class ApiService {
   static const String baseUrl =
@@ -124,9 +125,17 @@ class ApiService {
       BuildingFee.fromJson(await _post('/building-fees', data));
 
   // ── Bill Histories ────────────────────────────────────────────────────
-  Future<List<dynamic>> getBillHistories(String month, int buildingId) async =>
-      (await _get('/bills/histories/month/$month/building/$buildingId')) as List;
+  /// 월별 저장된 관리비 내역 조회.
+  Future<List<BillHistory>> getBillHistoriesByMonth(String month, int buildingId) async =>
+      ((await _get('/bills/histories/month/$month/building/$buildingId')) as List)
+          .map((e) => BillHistory.fromJson(e))
+          .toList();
 
+  /// 전체 저장된 관리비 내역 조회.
+  Future<List<BillHistory>> getAllBillHistories() async =>
+      ((await _get('/bills/histories')) as List).map((e) => BillHistory.fromJson(e)).toList();
+
+  /// 계산 결과를 관리비 내역으로 저장(배열 일괄).
   Future<void> saveBillHistories(List<Map<String, dynamic>> histories) async =>
       await _post('/bills/histories', histories);
 }
