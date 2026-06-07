@@ -59,11 +59,12 @@ export class MeterOcrService {
         '반드시 JSON 한 개만 출력하세요. 설명/코드블록 없이 순수 JSON.';
       userText =
         '이 전기요금 고지서/명세서에서 다음을 정확히 추출해 JSON으로만 답하세요.\n' +
-        '- "electricityTotalCost": "전기요금계" 라고 명시된 금액(원). ' +
-        '이것은 기본요금+전력량요금의 소계이며, "청구금액"(총액)·"당월요금계"·부가가치세·전력기금과는 다릅니다. ' +
-        '반드시 "전기요금계" 라벨이 붙은 값을 찾으세요. 없으면 null.\n' +
-        '- "electricityTotalUsage": 당월 사용량(kWh). "사용량 비교"나 "지침 및 사용량"의 당월 합계 kWh. 금액(원)이 아니라 kWh 입니다.\n' +
-        '⚠️ 청구금액(총액)이나 세금을 electricityTotalCost로 쓰지 마세요. 콤마 제거, 정수. 순수 JSON만.';
+        '- "electricityTotalCost": "전기요금계" 라고 정확히 적힌 라벨의 금액(원)만. ' +
+        '이것은 기본요금+전력량요금 소계이며 "청구금액"(가장 크고 진한 총액)·"당월요금계"·부가세·전력기금과 다릅니다.\n' +
+        '  ⚠️ "전기요금계" 글자와 그 옆 숫자를 또렷하게 읽지 못하면 추측하지 말고 반드시 null 로 두세요. ' +
+        '청구금액/당월요금계/총액을 대신 넣는 것은 금지입니다.\n' +
+        '- "electricityTotalUsage": 당월 사용량(kWh). "사용량 비교"나 "지침 및 사용량"의 당월 합계 kWh (금액 원이 아니라 kWh). 못 읽으면 null.\n' +
+        '콤마 제거, 정수. 순수 JSON만.';
     }
 
     const raw = await this.callVision(system, dto.image, dto.mediaType, userText, 200);
