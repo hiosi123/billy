@@ -34,24 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final p = context.watch<AppProvider>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            const Icon(Icons.apartment_rounded, color: BillyColors.primary, size: 22),
-            const SizedBox(width: 8),
-            const Text('Billy'),
-          ],
-        ),
-        actions: [
-          if (user != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: Center(child: BillyBadge(user.username, color: roleColor(user.role))),
-            ),
-          IconButton(onPressed: _logout, icon: const Icon(Icons.logout_rounded, size: 20), tooltip: '로그아웃'),
-          const SizedBox(width: 4),
-        ],
-      ),
+      backgroundColor: BillyColors.headerEnd,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddBuilding(context),
         backgroundColor: BillyColors.primary,
@@ -59,42 +42,117 @@ class _HomeScreenState extends State<HomeScreen> {
         icon: const Icon(Icons.add_rounded),
         label: const Text('건물 추가', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
-      body: RefreshIndicator(
-        onRefresh: () => p.loadBuildings(),
-        child: p.loadingBuildings && p.buildings.isEmpty
-            ? const LoadingView()
-            : p.buildings.isEmpty
-                ? ListView(children: [
-                    const SizedBox(height: 80),
-                    EmptyView(
-                      icon: Icons.apartment_outlined,
-                      message: '등록된 건물이 없습니다.\n오른쪽 아래 버튼으로 건물을 추가해보세요.',
-                      action: FilledButton.icon(
-                        onPressed: () => _showAddBuilding(context),
-                        icon: const Icon(Icons.add),
-                        label: const Text('건물 추가'),
-                      ),
+      body: Column(
+        children: [
+          // ── 다크 네이비 헤더 ───────────────────────────────
+          Container(
+            decoration: const BoxDecoration(gradient: BillyColors.headerGradient),
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 12, 22),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.apartment_rounded, color: Colors.white, size: 22),
+                        const SizedBox(width: 8),
+                        const Text('Billy', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.white)),
+                        const Spacer(),
+                        if (user != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(user.username,
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                        IconButton(
+                          onPressed: _logout,
+                          icon: const Icon(Icons.logout_rounded, size: 20, color: Colors.white),
+                          tooltip: '로그아웃',
+                        ),
+                      ],
                     ),
-                  ])
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                    children: [
-                      _HeaderBanner(count: p.buildings.length),
-                      const SizedBox(height: 16),
-                      ...p.buildings.map((b) => _BuildingCard(
-                            building: b,
-                            onTap: () async {
-                              await p.selectBuilding(b);
-                              if (!context.mounted) return;
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const BuildingDetailScreen()),
-                              );
-                            },
-                            onDelete: () => _confirmDelete(context, b),
-                          )),
-                    ],
-                  ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('관리 중인 건물',
+                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 13, fontWeight: FontWeight.w600)),
+                              const SizedBox(height: 4),
+                              Text('${p.buildings.length}개',
+                                  style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: const Icon(Icons.domain_rounded, color: Colors.white, size: 27),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          // ── 화이트 시트 (건물 목록) ─────────────────────────
+          Expanded(
+            child: Container(
+              decoration: const BoxDecoration(
+                color: BillyColors.background,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: RefreshIndicator(
+                onRefresh: () => p.loadBuildings(),
+                child: p.loadingBuildings && p.buildings.isEmpty
+                    ? const LoadingView()
+                    : p.buildings.isEmpty
+                        ? ListView(children: [
+                            const SizedBox(height: 60),
+                            EmptyView(
+                              icon: Icons.apartment_outlined,
+                              message: '등록된 건물이 없습니다.\n오른쪽 아래 버튼으로 건물을 추가해보세요.',
+                              action: FilledButton.icon(
+                                onPressed: () => _showAddBuilding(context),
+                                icon: const Icon(Icons.add),
+                                label: const Text('건물 추가'),
+                              ),
+                            ),
+                          ])
+                        : ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 18, 16, 100),
+                            children: [
+                              ...p.buildings.map((b) => _BuildingCard(
+                                    building: b,
+                                    onTap: () async {
+                                      await p.selectBuilding(b);
+                                      if (!context.mounted) return;
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (_) => const BuildingDetailScreen()),
+                                      );
+                                    },
+                                    onDelete: () => _confirmDelete(context, b),
+                                  )),
+                            ],
+                          ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -132,43 +190,6 @@ class _HomeScreenState extends State<HomeScreen> {
       useRootNavigator: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _AddBuildingSheet(),
-    );
-  }
-}
-
-class _HeaderBanner extends StatelessWidget {
-  final int count;
-  const _HeaderBanner({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: BillyColors.headerGradient,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: BillyColors.glow(BillyColors.headerEnd),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('관리 중인 건물', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text('$count개', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
-              ],
-            ),
-          ),
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(14)),
-            child: const Icon(Icons.domain_rounded, color: Colors.white, size: 28),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -231,9 +231,9 @@ class _CalculateTabState extends State<CalculateTab> {
         if (_results.isNotEmpty) ...[
           Container(
             decoration: BoxDecoration(
-              gradient: BillyColors.brandGradient,
+              gradient: BillyColors.headerGradient,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: BillyColors.glow(BillyColors.primary),
+              boxShadow: BillyColors.glow(BillyColors.headerEnd),
             ),
             padding: const EdgeInsets.all(18),
             child: Row(
