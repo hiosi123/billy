@@ -1,3 +1,5 @@
 docker-compose.yaml
 .env
 backups/
+images/
+.DS_Store

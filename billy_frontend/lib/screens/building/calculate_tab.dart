@@ -4,6 +4,7 @@ import '../../theme/app_theme.dart';
 import '../../providers/app_provider.dart';
 import '../../models/calc_result.dart';
 import '../../utils/format.dart';
+import '../../utils/image_pick.dart';
 import '../../widgets/common.dart';
 import '../../services/file_saver.dart';
 import 'month_selector.dart';
@@ -33,17 +34,52 @@ class _CalculateTabState extends State<CalculateTab> {
     super.dispose();
   }
 
+  // 콤마가 섞여 있어도 안전하게 숫자로 파싱.
+  double _n(TextEditingController c) => double.tryParse(c.text.replaceAll(',', '').trim()) ?? 0;
+
+  /// 공공요금 고지서 사진 → AI OCR → 합계 입력칸 자동 채움. (type: 'water'|'electricity')
+  Future<void> _readBill(String type) async {
+    final picked = await pickImageBase64(context, maxWidth: 2400); // 고지서는 글자가 작아 고해상도
+    if (picked == null || !mounted) return;
+    final api = context.read<AppProvider>().api;
+    try {
+      final r = await api.readBill(image: picked.data, type: type, mediaType: picked.media);
+      if (!mounted) return;
+      var filled = 0;
+      void fill(TextEditingController c, dynamic v) {
+        if (v is num) {
+          c.text = money(v);
+          filled++;
+        }
+      }
+      if (type == 'water') {
+        fill(_waterUsage, r['waterTotalUsage']);
+        fill(_waterSupply, r['waterSupplyCost']);
+        fill(_waterSewer, r['waterSewerCost']);
+        fill(_waterCost, r['waterTotalCost']);
+      } else {
+        fill(_elecCost, r['electricityTotalCost']);
+        fill(_elecUsage, r['electricityTotalUsage']);
+      }
+      setState(() {});
+      showSnack(context, filled > 0 ? '고지서에서 $filled개 항목을 입력했습니다 (확인 후 계산)' : '고지서에서 값을 인식하지 못했습니다',
+          error: filled == 0);
+    } catch (e) {
+      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+    }
+  }
+
   Future<void> _calculate() async {
     final p = context.read<AppProvider>();
     final req = {
       'BuildingId': p.selectedBuilding!.buildingId,
       'Month': p.chargeMonth,
-      'ElectricityTotalCost': double.tryParse(_elecCost.text) ?? 0,
-      'ElectricityTotalUsage': double.tryParse(_elecUsage.text) ?? 0,
-      'WaterTotalCost': double.tryParse(_waterCost.text) ?? 0,
-      'WaterTotalUsage': double.tryParse(_waterUsage.text) ?? 0,
-      'WaterSupplyCost': double.tryParse(_waterSupply.text) ?? 0,
-      'WaterSewerCost': double.tryParse(_waterSewer.text) ?? 0,
+      'ElectricityTotalCost': _n(_elecCost),
+      'ElectricityTotalUsage': _n(_elecUsage),
+      'WaterTotalCost': _n(_waterCost),
+      'WaterTotalUsage': _n(_waterUsage),
+      'WaterSupplyCost': _n(_waterSupply),
+      'WaterSewerCost': _n(_waterSewer),
     };
     if ((req['ElectricityTotalUsage'] as double) <= 0) {
       showSnack(context, '전체 전기 사용량을 입력해주세요', error: true);
@@ -117,6 +153,57 @@ class _CalculateTabState extends State<CalculateTab> {
           icon: Icons.receipt_long_outlined,
           child: Column(
             children: [
+              // 고지서 사진으로 AI 자동 입력
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: BillyColors.primarySoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.auto_awesome_rounded, size: 15, color: BillyColors.primary),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text('고지서 사진을 찍으면 AI가 합계를 자동 입력합니다',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: BillyColors.primaryDark)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 46,
+                            child: AsyncButton(
+                              label: '수도 고지서',
+                              icon: Icons.photo_camera_rounded,
+                              color: BillyColors.water,
+                              onPressed: () => _readBill('water'),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SizedBox(
+                            height: 46,
+                            child: AsyncButton(
+                              label: '전기 고지서',
+                              icon: Icons.photo_camera_rounded,
+                              color: BillyColors.electricity,
+                              onPressed: () => _readBill('electricity'),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
               _field2(
                 _LabeledField(label: '전체 전기요금', controller: _elecCost, color: BillyColors.electricity, suffix: '원'),
                 _LabeledField(label: '전체 전기사용량', controller: _elecUsage, color: BillyColors.electricity, suffix: 'kWh'),

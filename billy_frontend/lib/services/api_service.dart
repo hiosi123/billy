@@ -114,6 +114,16 @@ class ApiService {
     return res['value'] as num?;
   }
 
+  /// 공공요금 고지서 사진(base64) → AI OCR 합계 항목들. type: 'water'|'electricity'.
+  Future<Map<String, dynamic>> readBill({
+    required String image,
+    required String type,
+    String mediaType = 'image/jpeg',
+  }) async {
+    return Map<String, dynamic>.from(
+        await _post('/bills/read-bill', {'image': image, 'type': type, 'mediaType': mediaType}));
+  }
+
   /// 관리비 계산. 응답은 roomNumber → 결과 맵.
   Future<List<CalcResult>> calculateBill(Map<String, dynamic> req) async {
     final res = await _post('/bills/calculate', req) as Map<String, dynamic>;

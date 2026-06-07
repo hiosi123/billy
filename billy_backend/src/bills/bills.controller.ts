@@ -20,6 +20,7 @@ import { UsageDto } from './dto/usage.dto';
 import { CalculateBillDto } from './dto/calculate-bill.dto';
 import { ExcelBillDto } from './dto/excel-bill.dto';
 import { ReadMeterDto } from './dto/read-meter.dto';
+import { ReadBillDto } from './dto/read-bill.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
@@ -66,6 +67,12 @@ export class BillsController {
   @Post('read-meter')
   readMeter(@Body() dto: ReadMeterDto) {
     return this.meterOcrService.readMeter(dto);
+  }
+
+  /** 공공요금 고지서 사진 → AI OCR로 합계 항목 추출. */
+  @Post('read-bill')
+  readBill(@Body() dto: ReadBillDto) {
+    return this.meterOcrService.readBill(dto);
   }
 
   @Post('excel')

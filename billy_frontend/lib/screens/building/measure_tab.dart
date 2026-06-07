@@ -1,13 +1,11 @@
-import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
 import '../../providers/app_provider.dart';
 import '../../models/bill.dart';
 import '../../models/room.dart';
 import '../../utils/format.dart';
+import '../../utils/image_pick.dart';
 import '../../widgets/common.dart';
 import 'month_selector.dart';
 
@@ -100,42 +98,11 @@ class _MeasureTabState extends State<MeasureTab> {
 
   /// 계량기 사진 촬영/선택 → AI OCR → 지침 필드 자동 입력. (type: 'water'|'electricity')
   Future<void> _pickAndRead(String type, TextEditingController ctl, double? lastValue) async {
-    final picker = ImagePicker();
-    ImageSource source = ImageSource.gallery;
-    if (!kIsWeb) {
-      final picked = await showModalBottomSheet<ImageSource>(
-        context: context,
-        builder: (_) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_camera_outlined),
-                title: const Text('카메라로 촬영'),
-                onTap: () => Navigator.pop(context, ImageSource.camera),
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('갤러리에서 선택'),
-                onTap: () => Navigator.pop(context, ImageSource.gallery),
-              ),
-            ],
-          ),
-        ),
-      );
-      if (picked == null) return;
-      source = picked;
-    }
-
-    final XFile? file = await picker.pickImage(source: source, imageQuality: 70, maxWidth: 1600);
-    if (file == null) return;
-    final bytes = await file.readAsBytes();
-    final b64 = base64Encode(bytes);
-    final media = file.name.toLowerCase().endsWith('.png') ? 'image/png' : (file.mimeType ?? 'image/jpeg');
-    if (!mounted) return;
+    final picked = await pickImageBase64(context, maxWidth: 1600);
+    if (picked == null || !mounted) return;
     final api = context.read<AppProvider>().api;
     try {
-      final value = await api.readMeter(image: b64, type: type, lastValue: lastValue, mediaType: media);
+      final value = await api.readMeter(image: picked.data, type: type, lastValue: lastValue, mediaType: picked.media);
       if (!mounted) return;
       if (value != null) {
         ctl.text = num2(value);
@@ -389,21 +356,24 @@ class _CamButtonState extends State<_CamButton> {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: _busy ? null : _run,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(9),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: widget.color.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(8),
+          color: widget.color,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: [
+            BoxShadow(color: widget.color.withValues(alpha: 0.35), blurRadius: 6, offset: const Offset(0, 2)),
+          ],
         ),
         child: _busy
-            ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: widget.color))
-            : Row(
+            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.photo_camera_outlined, size: 14, color: widget.color),
-                  const SizedBox(width: 3),
-                  Text('AI', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: widget.color)),
+                  Icon(Icons.photo_camera_rounded, size: 14, color: Colors.white),
+                  SizedBox(width: 4),
+                  Text('AI 촬영', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
                 ],
               ),
       ),
