@@ -71,7 +71,7 @@ export class MeterOcrService {
     return out;
   }
 
-  // ── 공통 Claude 비전 호출 ───────────────────────────────────────────
+  // ── 공통 비전 호출 (OPENAI_API_KEY 있으면 OpenAI, 없으면 Anthropic) ──
   private async callVision(
     systemText: string,
     image: string,
@@ -79,12 +79,62 @@ export class MeterOcrService {
     userText: string,
     maxTokens: number,
   ): Promise<string> {
-    const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
-    if (!apiKey) {
-      throw new InternalServerErrorException('ANTHROPIC_API_KEY가 설정되지 않았습니다 (Railway 변수에 추가하세요)');
-    }
-    const model = this.config.get<string>('ANTHROPIC_MODEL', 'claude-sonnet-4-6');
+    const openaiKey = this.config.get<string>('OPENAI_API_KEY');
+    const anthropicKey = this.config.get<string>('ANTHROPIC_API_KEY');
+    if (openaiKey) return this.callOpenAI(openaiKey, systemText, image, mediaType, userText, maxTokens);
+    if (anthropicKey) return this.callAnthropic(anthropicKey, systemText, image, mediaType, userText, maxTokens);
+    throw new InternalServerErrorException(
+      'AI 키(OPENAI_API_KEY 또는 ANTHROPIC_API_KEY)가 설정되지 않았습니다 (Railway 변수에 추가하세요)',
+    );
+  }
 
+  private async callOpenAI(
+    key: string,
+    systemText: string,
+    image: string,
+    mediaType: string | undefined,
+    userText: string,
+    maxTokens: number,
+  ): Promise<string> {
+    const model = this.config.get<string>('OPENAI_MODEL', 'gpt-4o-mini');
+    const body = {
+      model,
+      max_tokens: maxTokens,
+      messages: [
+        { role: 'system', content: systemText },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: userText },
+            { type: 'image_url', image_url: { url: `data:${mediaType || 'image/jpeg'};base64,${image}` } },
+          ],
+        },
+      ],
+    };
+    let res: any;
+    try {
+      res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new InternalServerErrorException('AI 서버 연결에 실패했습니다');
+    }
+    if (!res.ok) throw new InternalServerErrorException(`AI 요청 실패 (${res.status})`);
+    const data = await res.json();
+    return (data?.choices?.[0]?.message?.content ?? '').trim();
+  }
+
+  private async callAnthropic(
+    key: string,
+    systemText: string,
+    image: string,
+    mediaType: string | undefined,
+    userText: string,
+    maxTokens: number,
+  ): Promise<string> {
+    const model = this.config.get<string>('ANTHROPIC_MODEL', 'claude-sonnet-4-6');
     const body = {
       model,
       max_tokens: maxTokens,
@@ -99,23 +149,17 @@ export class MeterOcrService {
         },
       ],
     };
-
     let res: any;
     try {
       res = await fetch(API_URL, {
         method: 'POST',
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
     } catch {
       throw new InternalServerErrorException('AI 서버 연결에 실패했습니다');
     }
     if (!res.ok) throw new InternalServerErrorException(`AI 요청 실패 (${res.status})`);
-
     const data = await res.json();
     return (data?.content?.[0]?.text ?? '').trim();
   }
