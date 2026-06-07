@@ -13,6 +13,14 @@ class ApiService {
   static const String baseUrl =
       String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:3000/api/v1');
 
+  /// 토큰 만료/무효(401)로 더 이상 인증이 안 될 때 호출 — 전역 로그아웃+로그인 화면 이동.
+  /// main.dart 에서 한 번 등록한다.
+  static void Function()? onUnauthorized;
+  static bool _redirectingToLogin = false;
+
+  /// 로그인 성공 시 호출해 401 리다이렉트 가드를 푼다(재로그인 후 정상 동작).
+  static void resetAuthGuard() => _redirectingToLogin = false;
+
   Map<String, String> get _h => {
         'Content-Type': 'application/json',
         if (AuthService.token != null) 'Authorization': 'Bearer ${AuthService.token}',
@@ -20,11 +28,21 @@ class ApiService {
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
+  /// 로그인된 상태에서 401 이면 토큰이 만료/무효 → 전역 로그아웃 트리거.
+  /// (로그인 화면에서의 401(비밀번호 오류)은 토큰이 없으므로 무시된다.)
+  void _checkUnauthorized(int status) {
+    if (status == 401 && AuthService.isLoggedIn && !_redirectingToLogin) {
+      _redirectingToLogin = true;
+      onUnauthorized?.call();
+    }
+  }
+
   dynamic _parse(http.Response res) {
     if (res.statusCode >= 200 && res.statusCode < 300) {
       if (res.body.isEmpty) return null;
       return jsonDecode(utf8.decode(res.bodyBytes));
     }
+    _checkUnauthorized(res.statusCode);
     String msg;
     try {
       final body = jsonDecode(utf8.decode(res.bodyBytes));
@@ -43,8 +61,12 @@ class ApiService {
   Future<dynamic> _delete(String path) async => _parse(await http.delete(_uri(path), headers: _h));
 
   // ── Auth ──────────────────────────────────────────────────────────────
-  Future<Map<String, dynamic>> login(String username, String password) async =>
-      Map<String, dynamic>.from(await _post('/auth/login', {'username': username, 'password': password}));
+  Future<Map<String, dynamic>> login(String username, String password) async {
+    final res = Map<String, dynamic>.from(
+        await _post('/auth/login', {'username': username, 'password': password}));
+    resetAuthGuard(); // 재로그인 성공 → 다음 만료에도 다시 동작하도록 가드 해제
+    return res;
+  }
 
   // ── Buildings ─────────────────────────────────────────────────────────
   Future<List<Building>> getBuildings() async =>
@@ -135,6 +157,7 @@ class ApiService {
   Future<List<int>> makeBillExcel(List<Map<String, dynamic>> bills) async {
     final res = await http.post(_uri('/bills/excel'), headers: _h, body: jsonEncode(bills));
     if (res.statusCode >= 200 && res.statusCode < 300) return res.bodyBytes;
+    _checkUnauthorized(res.statusCode);
     throw Exception('엑셀 생성 실패 (${res.statusCode})');
   }
 
