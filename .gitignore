@@ -3,3 +3,11 @@ docker-compose.yaml
 backups/
 images/
 .DS_Store
+
+# Android 서명 (절대 커밋 금지)
+**/key.properties
+**/*.jks
+**/*.keystore
+**/upload-keystore.jks
+**/KEYSTORE_BACKUP.txt
+release_artifacts/

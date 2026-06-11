@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- API 통신(Railway 백엔드) 및 사진 업로드에 필수. 릴리스 빌드에도 반드시 포함. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="billy_frontend"
+        android:label="Billy - 건물 관리비"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
