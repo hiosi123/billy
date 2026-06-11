@@ -131,6 +131,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 label: const Text('건물 추가'),
                               ),
                             ),
+                            const SizedBox(height: 40),
+                            const _AdInquiryFooter(),
                           ])
                         : ListView(
                             padding: const EdgeInsets.fromLTRB(16, 18, 16, 100),
@@ -147,6 +149,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                     },
                                     onDelete: () => _confirmDelete(context, b),
                                   )),
+                              const SizedBox(height: 8),
+                              const _AdInquiryFooter(),
                             ],
                           ),
               ),
@@ -190,6 +194,36 @@ class _HomeScreenState extends State<HomeScreen> {
       useRootNavigator: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const _AddBuildingSheet(),
+    );
+  }
+}
+
+/// 화면 하단의 작은 광고 문의 안내.
+class _AdInquiryFooter extends StatelessWidget {
+  const _AdInquiryFooter();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.campaign_outlined, size: 13, color: BillyColors.textHint),
+            const SizedBox(width: 5),
+            Text(
+              '광고 문의  010-2031-1883',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: BillyColors.textHint,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
