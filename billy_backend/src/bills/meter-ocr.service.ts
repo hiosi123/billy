@@ -62,14 +62,12 @@ export class MeterOcrService {
       userText =
         '이 한국전력 전기요금 고지서에서 정확히 2개 값을 추출해 JSON으로만 답하세요.\n' +
         '\n' +
-        '① "electricityTotalCost" = 이미지에서 "전기요금계" 라는 글자(라벨)를 찾아, 바로 그 옆(오른쪽)에 적힌 숫자입니다.\n' +
-        '   ★ 핵심 규칙: 반드시 "전기요금계" 글자 바로 옆 숫자만 읽으세요. 라벨이 또렷이 안 보이면 null.\n' +
-        '   - 교차검증: 이 값은 "전자세금계산서"의 "공급가액"과 같은 숫자입니다.\n' +
-        '   - 🚫 옆에 더 큰 숫자가 있어도 절대 쓰지 마세요:\n' +
-        '       · "영수금액"(납부영수증·이전달 칸의 금액) ❌\n' +
-        '       · "청구금액"·"금액"(가장 크고 진한 최종 총액) ❌\n' +
-        '       · "당월요금계" ❌  · 부가가치세 ❌  · 전력기금 ❌  · TV수신료 ❌\n' +
-        '   - 크기 순서는 (전기요금계) < (당월요금계) < (청구금액) 이며, 우리는 "전기요금계" 옆 숫자만 필요합니다.\n' +
+        '① "electricityTotalCost" = 전기요금계(원). 아래 2가지로 교차 확인해 또렷한 값을 쓰세요(둘은 항상 같음).\n' +
+        '   (a) ★1순위★ "전자세금계산서" 박스의 "공급가액" 옆 숫자. ← 깨끗한 표라 가장 정확.\n' +
+        '   (b) "청구내역" 표의 "전기요금계" 글자 옆 숫자.\n' +
+        '   - 🚫 절대 쓰면 안 되는 더 큰 숫자: "청구금액"·"금액"(맨아래 총액)·"영수금액"·"수납금액"·"당월요금계"·부가가치세·전력기금·TV수신료.\n' +
+        '   - 크기 순서는 (전기요금계=공급가액) < (당월요금계) < (청구금액). 가장 작은 값이 정답.\n' +
+        '   - 추측 금지. 또렷이 못 읽으면 null.\n' +
         '\n' +
         '② "electricityTotalUsage" = 당월 전기 사용량(kWh).\n' +
         '   - 위치: "사용량 비교"의 "당월" 값, 또는 "계절별 사용량"의 "계", 또는 사용량 그래프 당월값.\n' +
@@ -78,7 +76,7 @@ export class MeterOcrService {
         '콤마 제거하고 정수로. 설명 없이 순수 JSON만 출력.';
     }
 
-    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 200);
+    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 200, true);
     const parsed = this.parseJson(raw);
     const out: { [k: string]: number | string | null } = { raw };
     for (const k of keys) out[k] = this.coerceNumber(parsed?.[k]);
@@ -104,13 +102,13 @@ export class MeterOcrService {
       '  ⚠️ 상수도/하수도 값을 절대 바꿔 쓰지 마세요. 물이용부담금은 사용요금이 아닙니다.\n' +
       '\n' +
       '[전기(한국전력)이면] type="electricity" 이고 아래 필드를 채웁니다.\n' +
-      '  - "electricityTotalCost": "전기요금계" 라는 글자 바로 옆(오른쪽) 숫자(원). "전자세금계산서"의 "공급가액"과 같은 값.\n' +
-      '      🚫 옆의 더 큰 숫자 금지: "영수금액"·"청구금액"·"금액"·"당월요금계"·부가세·전력기금·TV수신료. "전기요금계" 글자 옆 숫자만.\n' +
+      '  - "electricityTotalCost": 전기요금계(원). "전자세금계산서"의 "공급가액" 옆 숫자(1순위) = "청구내역"의 "전기요금계" 옆 숫자(둘은 같음).\n' +
+      '      🚫 더 큰 숫자 금지: "영수금액"·"청구금액"·"금액"·"수납금액"·"당월요금계"·부가세·전력기금·TV수신료.\n' +
       '  - "electricityTotalUsage": 당월 사용량(kWh). "사용량 비교" 당월 또는 "계절별 사용량"의 "계".\n' +
       '\n' +
       '콤마 제거하고 정수로. 판별된 type의 필드만 채워 순수 JSON만 출력.';
 
-    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 300);
+    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 300, true);
     const parsed = this.parseJson(raw);
     const type = parsed?.type === 'water' || parsed?.type === 'electricity' ? parsed.type : null;
     const out: { type: 'water' | 'electricity' | null; [k: string]: number | string | null } = { type, raw };
@@ -136,11 +134,13 @@ export class MeterOcrService {
     const userText =
       '제공된 전기요금 고지서 이미지들(보통 청구서 1장 + 내역서 1장)을 모두 종합해 정확히 2개 값을 추출해 JSON으로만 답하세요.\n' +
       '\n' +
-      '① "electricityTotalCost" = 이미지에서 "전기요금계" 라는 글자(라벨)를 찾아, 바로 그 옆(오른쪽)에 적힌 숫자입니다.\n' +
-      '   ★ 핵심 규칙: 반드시 "전기요금계" 글자 바로 옆 숫자만 읽으세요. 라벨이 보이지 않으면 null.\n' +
-      '   - 교차검증: 이 값은 "전자세금계산서"의 "공급가액"과 같은 숫자입니다.\n' +
-      '   - 🚫 옆에 더 큰 숫자가 있어도 절대 쓰지 마세요: "청구금액"·"영수금액"·"당월요금계"·"금액"(맨아래 큰 총액)·부가가치세·전력기금·TV수신료·합계.\n' +
-      '   - 여러 이미지에 "전기요금계"가 보이면 모두 같은 값일 테니 그 값을 쓰세요.\n' +
+      '① "electricityTotalCost" = 전기요금계(원). 아래 2가지로 교차 확인해 가장 또렷한 값을 쓰세요. (둘은 항상 같은 값)\n' +
+      '   (a) ★1순위★ "전자세금계산서" 라는 박스 안의 "공급가액" 옆 숫자. ← 깨끗한 표라 가장 정확합니다.\n' +
+      '   (b) "청구내역" 표의 "전기요금계" 글자 옆 숫자.\n' +
+      '   - (a)공급가액 과 (b)전기요금계 는 반드시 일치합니다. 둘 다 확인해 같은 숫자를 고르세요.\n' +
+      '   - 🚫 절대 쓰면 안 되는 더 큰 숫자들: "청구금액"·"금액"(맨아래 큰 총액)·"영수금액"·"수납금액"·"당월요금계"·부가가치세·전력기금·TV수신료.\n' +
+      '   - 크기 순서: (전기요금계=공급가액) < (당월요금계) < (청구금액). 가장 작은 전기요금계가 정답.\n' +
+      '   - 추측 금지. 공급가액/전기요금계 어느 쪽도 또렷이 못 읽으면 null.\n' +
       '\n' +
       '② "electricityTotalUsage" = 당월 전기 사용량(kWh).\n' +
       '   - 내역서의 "계절별 사용량"의 "계", 또는 "사용량 비교"의 "당월" 값. 단위는 kWh(원 아님).\n' +
@@ -149,7 +149,7 @@ export class MeterOcrService {
       '콤마 제거, 정수. 순수 JSON만.';
 
     const images = (dto.images || []).map((img) => ({ image: img, mediaType: dto.mediaType }));
-    const raw = await this.callVision(system, images, userText, 300);
+    const raw = await this.callVision(system, images, userText, 300, true);
     const parsed = this.parseJson(raw);
     return {
       electricityTotalCost: this.coerceNumber(parsed?.electricityTotalCost),
@@ -159,16 +159,18 @@ export class MeterOcrService {
   }
 
   // ── 공통 비전 호출 (이미지 1장 이상). OPENAI 우선, 없으면 ANTHROPIC ──
+  // strong=true 면 고지서 표 인식용 상위 모델(gpt-4o)을 쓴다(계량기 숫자는 false).
   private async callVision(
     systemText: string,
     images: { image: string; mediaType?: string }[],
     userText: string,
     maxTokens: number,
+    strong = false,
   ): Promise<string> {
     const openaiKey = this.config.get<string>('OPENAI_API_KEY');
     const anthropicKey = this.config.get<string>('ANTHROPIC_API_KEY');
-    if (openaiKey) return this.callOpenAI(openaiKey, systemText, images, userText, maxTokens);
-    if (anthropicKey) return this.callAnthropic(anthropicKey, systemText, images, userText, maxTokens);
+    if (openaiKey) return this.callOpenAI(openaiKey, systemText, images, userText, maxTokens, strong);
+    if (anthropicKey) return this.callAnthropic(anthropicKey, systemText, images, userText, maxTokens, strong);
     throw new InternalServerErrorException(
       'AI 키(OPENAI_API_KEY 또는 ANTHROPIC_API_KEY)가 설정되지 않았습니다 (Railway 변수에 추가하세요)',
     );
@@ -180,8 +182,11 @@ export class MeterOcrService {
     images: { image: string; mediaType?: string }[],
     userText: string,
     maxTokens: number,
+    strong = false,
   ): Promise<string> {
-    const model = this.config.get<string>('OPENAI_MODEL', 'gpt-4o-mini');
+    const model = strong
+      ? this.config.get<string>('OPENAI_BILL_MODEL', 'gpt-4o')
+      : this.config.get<string>('OPENAI_MODEL', 'gpt-4o-mini');
     const body = {
       model,
       max_tokens: maxTokens,
@@ -220,8 +225,11 @@ export class MeterOcrService {
     images: { image: string; mediaType?: string }[],
     userText: string,
     maxTokens: number,
+    strong = false,
   ): Promise<string> {
-    const model = this.config.get<string>('ANTHROPIC_MODEL', 'claude-sonnet-4-6');
+    const model = strong
+      ? this.config.get<string>('ANTHROPIC_BILL_MODEL', 'claude-sonnet-4-6')
+      : this.config.get<string>('ANTHROPIC_MODEL', 'claude-sonnet-4-6');
     const body = {
       model,
       max_tokens: maxTokens,
