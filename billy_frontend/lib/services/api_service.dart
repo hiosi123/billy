@@ -205,4 +205,14 @@ class ApiService {
   /// 계산 결과를 관리비 내역으로 저장(배열 일괄).
   Future<void> saveBillHistories(List<Map<String, dynamic>> histories) async =>
       await _post('/bills/histories', histories);
+
+  // ── 관리비 계산 입력값(고지서 합계 + 사진) 저장/복원 ────────────────────
+  /// 건물·월 기준 저장된 계산 입력값 조회(없으면 null). elecPhotos 는 base64 배열.
+  Future<Map<String, dynamic>?> getCalcInput(int buildingId, String month) async {
+    final res = await _get('/bills/calc-inputs/building/$buildingId/month/$month');
+    return res == null ? null : Map<String, dynamic>.from(res);
+  }
+
+  /// 계산 입력값 저장(건물·월 upsert).
+  Future<void> saveCalcInput(Map<String, dynamic> data) async => await _post('/bills/calc-inputs', data);
 }

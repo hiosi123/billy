@@ -32,6 +32,12 @@ class _CalculateTabState extends State<CalculateTab> {
   final List<({String data, String media})> _elecPhotos = [];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadSavedInput());
+  }
+
+  @override
   void dispose() {
     for (final c in [_elecCost, _elecUsage, _waterCost, _waterUsage, _waterSupply, _waterSewer]) {
       c.dispose();
@@ -41,6 +47,66 @@ class _CalculateTabState extends State<CalculateTab> {
 
   // 콤마가 섞여 있어도 안전하게 숫자로 파싱.
   double _n(TextEditingController c) => double.tryParse(c.text.replaceAll(',', '').trim()) ?? 0;
+
+  String _moneyOrEmpty(dynamic v) => (v is num && v != 0) ? money(v) : '';
+
+  /// 이 건물·월에 저장된 입력값/사진을 불러와 복원. 없으면 입력칸·사진 초기화.
+  Future<void> _loadSavedInput() async {
+    final p = context.read<AppProvider>();
+    if (p.selectedBuilding == null) return;
+    try {
+      final r = await p.api.getCalcInput(p.selectedBuilding!.buildingId, p.chargeMonth);
+      if (!mounted) return;
+      setState(() {
+        _results = [];
+        if (r == null) {
+          for (final c in [_elecCost, _elecUsage, _waterCost, _waterUsage, _waterSupply, _waterSewer]) {
+            c.clear();
+          }
+          _waterPhoto = null;
+          _elecPhotos.clear();
+          return;
+        }
+        _elecCost.text = _moneyOrEmpty(r['electricityTotalCost']);
+        _elecUsage.text = _moneyOrEmpty(r['electricityTotalUsage']);
+        _waterCost.text = _moneyOrEmpty(r['waterTotalCost']);
+        _waterUsage.text = _moneyOrEmpty(r['waterTotalUsage']);
+        _waterSupply.text = _moneyOrEmpty(r['waterSupplyCost']);
+        _waterSewer.text = _moneyOrEmpty(r['waterSewerCost']);
+        final wp = r['waterPhoto'];
+        _waterPhoto = (wp is String && wp.isNotEmpty) ? (data: wp, media: 'image/jpeg') : null;
+        _elecPhotos
+          ..clear()
+          ..addAll(((r['elecPhotos'] as List?) ?? [])
+              .whereType<String>()
+              .map((d) => (data: d, media: 'image/jpeg')));
+      });
+    } catch (_) {
+      // 조회 실패 시 조용히 무시(입력은 유지)
+    }
+  }
+
+  /// 현재 입력값 + 고지서 사진을 이 건물·월에 저장.
+  Future<void> _saveInput() async {
+    final p = context.read<AppProvider>();
+    try {
+      await p.api.saveCalcInput({
+        'buildingId': p.selectedBuilding!.buildingId,
+        'chargeMonth': p.chargeMonth,
+        'electricityTotalCost': _n(_elecCost),
+        'electricityTotalUsage': _n(_elecUsage),
+        'waterTotalCost': _n(_waterCost),
+        'waterTotalUsage': _n(_waterUsage),
+        'waterSupplyCost': _n(_waterSupply),
+        'waterSewerCost': _n(_waterSewer),
+        'waterPhoto': _waterPhoto?.data,
+        'elecPhotos': _elecPhotos.map((e) => e.data).toList(),
+      });
+      if (mounted) showSnack(context, '입력값·사진을 저장했습니다 (이 달을 다시 열면 복원됩니다)');
+    } catch (e) {
+      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+    }
+  }
 
   int _applyWater(Map r) {
     var n = 0;
@@ -232,7 +298,13 @@ class _CalculateTabState extends State<CalculateTab> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       children: [
-        MonthSelector(month: p.chargeMonth, onChanged: (m) => p.setChargeMonth(m)),
+        MonthSelector(
+          month: p.chargeMonth,
+          onChanged: (m) {
+            p.setChargeMonth(m);
+            _loadSavedInput(); // 월 바꾸면 그 달 저장값 복원
+          },
+        ),
         const SizedBox(height: 14),
         SectionCard(
           title: '고지서 합계 입력',
@@ -340,6 +412,17 @@ class _CalculateTabState extends State<CalculateTab> {
                 width: double.infinity,
                 height: 50,
                 child: AsyncButton(label: '관리비 계산하기', icon: Icons.calculate_rounded, onPressed: _calculate),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: AsyncButton(
+                  label: '입력값·사진 저장',
+                  icon: Icons.save_outlined,
+                  color: BillyColors.textSecondary,
+                  onPressed: _saveInput,
+                ),
               ),
             ],
           ),
