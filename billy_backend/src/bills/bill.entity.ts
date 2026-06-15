@@ -24,6 +24,13 @@ export class Bill {
   @Column({ name: 'electricity_bill', type: 'decimal', precision: 10, scale: 2, default: 0, transformer: DecimalTransformer })
   electricityBill: number;
 
+  /** 검침 계량기 사진 S3 URL. */
+  @Column({ name: 'water_meter_photo', type: 'text', nullable: true })
+  waterMeterPhoto: string | null;
+
+  @Column({ name: 'electricity_meter_photo', type: 'text', nullable: true })
+  electricityMeterPhoto: string | null;
+
   @Column({ name: 'room_id', type: 'int' })
   roomId: number;
 

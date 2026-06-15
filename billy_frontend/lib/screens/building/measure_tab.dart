@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
 import '../../providers/app_provider.dart';
+import '../../services/api_service.dart';
 import '../../models/bill.dart';
+import '../../models/bill_photo.dart';
 import '../../models/room.dart';
 import '../../utils/format.dart';
 import '../../utils/image_pick.dart';
@@ -24,8 +26,8 @@ class _MeasureTabState extends State<MeasureTab> {
   Map<int, BillInfo> _last2ByRoom = {}; // roomId -> 지지난달 청구(오차범위 비교용)
   final Map<int, TextEditingController> _water = {};
   final Map<int, TextEditingController> _elec = {};
-  // 촬영 사진 보존(화면 확인용). 키: 'roomId-water' | 'roomId-electricity'
-  final Map<String, ({String data, String media})> _photos = {};
+  // 촬영/저장 사진. 키: 'roomId-water' | 'roomId-electricity'. 저장 시 S3 URL로 갱신.
+  final Map<String, BillPhoto> _photos = {};
 
   static String _prevMonth(String yyyymm) {
     final y = int.parse(yyyymm.substring(0, 4));
@@ -66,12 +68,18 @@ class _MeasureTabState extends State<MeasureTab> {
       _byRoom = {for (final i in results[0]) i.roomId: i};
       _lastByRoom = {for (final i in results[1]) i.roomId: i};
       _last2ByRoom = {for (final i in results[2]) i.roomId: i};
+      _photos.clear();
       for (final r in p.rooms) {
         final info = _byRoom[r.roomId];
         final wc = _water.putIfAbsent(r.roomId, () => TextEditingController());
         wc.text = info != null && info.waterMeasure > 0 ? num2(info.waterMeasure) : '';
         final ec = _elec.putIfAbsent(r.roomId, () => TextEditingController());
         ec.text = info != null && info.electricityMeasure > 0 ? num2(info.electricityMeasure) : '';
+        // 저장돼 있던 계량기 사진(S3 URL) 복원
+        if (info?.waterMeterPhoto != null) _photos['${r.roomId}-water'] = BillPhoto(url: info!.waterMeterPhoto);
+        if (info?.electricityMeterPhoto != null) {
+          _photos['${r.roomId}-electricity'] = BillPhoto(url: info!.electricityMeterPhoto);
+        }
       }
     } catch (_) {
       _byRoom = {};
@@ -113,15 +121,29 @@ class _MeasureTabState extends State<MeasureTab> {
     }
   }
 
+  /// 해당 키의 사진이 base64면 S3 업로드 후 URL 반환(이미 URL이면 그대로). 업로드 후 재업로드 방지.
+  Future<String?> _uploadIfNeeded(ApiService api, String key) async {
+    final photo = _photos[key];
+    if (photo == null || photo.base64 == null) return photo?.url;
+    final url = await api.uploadImage('meter', photo.media, base64Decode(photo.base64!));
+    _photos[key] = BillPhoto(url: url);
+    return url;
+  }
+
   Future<void> _persist(Room room) async {
     final p = context.read<AppProvider>();
-    await p.api.insertMeasure({
+    final api = p.api;
+    final waterUrl = await _uploadIfNeeded(api, '${room.roomId}-water');
+    final elecUrl = await _uploadIfNeeded(api, '${room.roomId}-electricity');
+    await api.insertMeasure({
       'BuildingId': room.buildingId,
       'FloorId': room.floorId,
       'RoomId': room.roomId,
       'WaterMeasure': _parse(_water[room.roomId]) ?? 0,
       'ElectricityMeasure': _parse(_elec[room.roomId]) ?? 0,
       'ChargeMonth': p.chargeMonth,
+      'WaterMeterPhoto': waterUrl,
+      'ElectricityMeterPhoto': elecUrl,
     });
   }
 
@@ -180,7 +202,7 @@ class _MeasureTabState extends State<MeasureTab> {
   Future<void> _pickAndRead(String type, int roomId, TextEditingController ctl, double? lastValue) async {
     final picked = await pickImageBase64(context, maxWidth: 1600);
     if (picked == null || !mounted) return;
-    setState(() => _photos['$roomId-$type'] = picked); // 인식 전에도 사진은 남겨 비교 가능
+    setState(() => _photos['$roomId-$type'] = BillPhoto(base64: picked.data, media: picked.media)); // 사진 남겨 비교
     final api = context.read<AppProvider>().api;
     try {
       final value = await api.readMeter(image: picked.data, type: type, lastValue: lastValue, mediaType: picked.media);
@@ -274,8 +296,8 @@ class _MeasureCard extends StatelessWidget {
   final BillInfo? last2Info;
   final TextEditingController waterCtl;
   final TextEditingController elecCtl;
-  final ({String data, String media})? waterPhoto;
-  final ({String data, String media})? elecPhoto;
+  final BillPhoto? waterPhoto;
+  final BillPhoto? elecPhoto;
   final VoidCallback onSave;
   final Future<void> Function(String type, int roomId, TextEditingController ctl, double? lastValue) onPickPhoto;
 
@@ -396,14 +418,32 @@ class _MeasureCard extends StatelessWidget {
   }
 }
 
+/// 사진 표시(S3 URL 또는 방금 촬영한 base64). w/h 미지정 시 원본 크기.
+Widget _photoImage(BillPhoto photo, {double? w, double? h}) {
+  if (photo.url != null) {
+    return Image.network(photo.url!,
+        width: w,
+        height: h,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => Container(
+              width: w,
+              height: h ?? 64,
+              color: BillyColors.surfaceAlt,
+              alignment: Alignment.center,
+              child: const Icon(Icons.broken_image_outlined, size: 18, color: BillyColors.textHint),
+            ));
+  }
+  return Image.memory(base64Decode(photo.base64!), width: w, height: h, fit: BoxFit.cover);
+}
+
 /// 큰 사진 보기 다이얼로그(확대/이동 가능).
-void _showPhotoDialog(BuildContext context, ({String data, String media}) photo) {
+void _showPhotoDialog(BuildContext context, BillPhoto photo) {
   showDialog(
     context: context,
     builder: (_) => Dialog(
       backgroundColor: Colors.black,
       insetPadding: const EdgeInsets.all(16),
-      child: InteractiveViewer(child: Image.memory(base64Decode(photo.data))),
+      child: InteractiveViewer(child: _photoImage(photo)),
     ),
   );
 }
@@ -416,7 +456,7 @@ class _MeasureField extends StatelessWidget {
   final double? lastUsage; // 지난달 사용량
   final double? last2Usage; // 지지난달 사용량
   final double? fallbackUsage; // 저장된 이번달 사용량(지침 비교 불가 시)
-  final ({String data, String media})? photo;
+  final BillPhoto? photo;
   final Future<void> Function()? onPhoto;
   const _MeasureField({
     required this.label,
@@ -492,8 +532,7 @@ class _MeasureField extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                         child: Stack(
                           children: [
-                            Image.memory(base64Decode(photo!.data),
-                                height: 70, width: double.infinity, fit: BoxFit.cover),
+                            _photoImage(photo!, h: 70, w: double.infinity),
                             Positioned(
                               right: 4,
                               bottom: 4,

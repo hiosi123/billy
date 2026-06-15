@@ -18,6 +18,8 @@ export interface BillInfo {
   electricityUsage: number;
   electricityBill: number;
   electricityMeasure: number;
+  waterMeterPhoto: string | null;
+  electricityMeterPhoto: string | null;
   chargeMonth: string;
   roomId: number;
   floorId: number;
@@ -89,6 +91,8 @@ export class BillsService {
         'b.electricity_usage AS "electricityUsage"',
         'b.electricity_bill AS "electricityBill"',
         'b.electricity_measure AS "electricityMeasure"',
+        'b.water_meter_photo AS "waterMeterPhoto"',
+        'b.electricity_meter_photo AS "electricityMeterPhoto"',
         'b.charge_month AS "chargeMonth"',
         'b.room_id AS "roomId"',
         'b.floor_id AS "floorId"',
@@ -112,6 +116,8 @@ export class BillsService {
       electricityUsage: parseFloat(r.electricityUsage) || 0,
       electricityBill: parseFloat(r.electricityBill) || 0,
       electricityMeasure: parseFloat(r.electricityMeasure) || 0,
+      waterMeterPhoto: r.waterMeterPhoto ?? null,
+      electricityMeterPhoto: r.electricityMeterPhoto ?? null,
       chargeMonth: r.chargeMonth,
       roomId: Number(r.roomId),
       floorId: Number(r.floorId),
@@ -166,6 +172,10 @@ export class BillsService {
           buildingId: usage.BuildingId,
           chargeMonth: usage.ChargeMonth,
         };
+
+        // 계량기 사진 URL(제공된 경우에만 갱신 — 구버전 클라이언트가 덮어쓰지 않도록)
+        if (usage.WaterMeterPhoto !== undefined) bill.waterMeterPhoto = usage.WaterMeterPhoto;
+        if (usage.ElectricityMeterPhoto !== undefined) bill.electricityMeterPhoto = usage.ElectricityMeterPhoto;
 
         if ((multi.strictWater ?? 0) > 0) bill.waterUsage = multi.strictWater;
         if ((multi.strictElectricity ?? 0) > 0) bill.electricityUsage = multi.strictElectricity;

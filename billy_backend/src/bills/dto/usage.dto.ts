@@ -1,4 +1,4 @@
-import { IsInt, IsNumber, IsString } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsString } from 'class-validator';
 
 /** 검침값 입력(InsertMeasure)용. 기존 Go 의 Usage 구조체와 동일 필드. */
 export class UsageDto {
@@ -8,4 +8,8 @@ export class UsageDto {
   @IsNumber() WaterMeasure: number;
   @IsNumber() ElectricityMeasure: number;
   @IsString() ChargeMonth: string; // YYYYMM
+
+  /** 계량기 사진 S3 URL(선택). */
+  @IsOptional() @IsString() WaterMeterPhoto?: string | null;
+  @IsOptional() @IsString() ElectricityMeterPhoto?: string | null;
 }

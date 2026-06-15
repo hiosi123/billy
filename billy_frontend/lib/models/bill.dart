@@ -52,6 +52,8 @@ class BillInfo {
   final double electricityUsage;
   final double electricityBill;
   final double electricityMeasure;
+  final String? waterMeterPhoto;
+  final String? electricityMeterPhoto;
   final String chargeMonth;
   final int roomId;
   final int floorId;
@@ -68,6 +70,8 @@ class BillInfo {
     required this.electricityUsage,
     required this.electricityBill,
     required this.electricityMeasure,
+    this.waterMeterPhoto,
+    this.electricityMeterPhoto,
     required this.chargeMonth,
     required this.roomId,
     required this.floorId,
@@ -85,6 +89,9 @@ class BillInfo {
         electricityUsage: toDouble(j['electricityUsage']),
         electricityBill: toDouble(j['electricityBill']),
         electricityMeasure: toDouble(j['electricityMeasure']),
+        waterMeterPhoto: (j['waterMeterPhoto'] as String?)?.isNotEmpty == true ? j['waterMeterPhoto'] as String : null,
+        electricityMeterPhoto:
+            (j['electricityMeterPhoto'] as String?)?.isNotEmpty == true ? j['electricityMeterPhoto'] as String : null,
         chargeMonth: j['chargeMonth'] ?? '',
         roomId: toInt(j['roomId']),
         floorId: toInt(j['floorId']),
