@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ReadMeterDto } from './dto/read-meter.dto';
 import { ReadBillDto } from './dto/read-bill.dto';
 import { ReadBillAutoDto } from './dto/read-bill-auto.dto';
+import { ReadBillElecDto } from './dto/read-bill-elec.dto';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 
@@ -29,7 +30,7 @@ export class MeterOcrService {
       '읽을 수 없으면 정확히 "null" 이라고만 답하세요.';
     const userText = `이 ${meterKo} 사진의 지침값을 읽어주세요. ${hint} 숫자만 답하세요.`;
 
-    const raw = await this.callVision(system, dto.image, dto.mediaType, userText, 50);
+    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 50);
     return { value: this.parseNumber(raw), raw };
   }
 
@@ -79,7 +80,7 @@ export class MeterOcrService {
         '콤마 제거하고 정수로. 설명 없이 순수 JSON만 출력.';
     }
 
-    const raw = await this.callVision(system, dto.image, dto.mediaType, userText, 200);
+    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 200);
     const parsed = this.parseJson(raw);
     const out: { [k: string]: number | string | null } = { raw };
     for (const k of keys) out[k] = this.coerceNumber(parsed?.[k]);
@@ -111,7 +112,7 @@ export class MeterOcrService {
       '\n' +
       '콤마 제거하고 정수로. 판별된 type의 필드만 채워 순수 JSON만 출력.';
 
-    const raw = await this.callVision(system, dto.image, dto.mediaType, userText, 300);
+    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 300);
     const parsed = this.parseJson(raw);
     const type = parsed?.type === 'water' || parsed?.type === 'electricity' ? parsed.type : null;
     const out: { type: 'water' | 'electricity' | null; [k: string]: number | string | null } = { type, raw };
@@ -125,18 +126,49 @@ export class MeterOcrService {
     return out;
   }
 
-  // ── 공통 비전 호출 (OPENAI_API_KEY 있으면 OpenAI, 없으면 Anthropic) ──
+  // ── 4. 전기 고지서 여러 장(청구서+내역서) → 전기요금계 + 당월 사용량 ──
+  // 전기 고지서는 보통 2장으로 나뉘어, 한 장에 전기요금계, 다른 장에 당월 사용량이 있다.
+  // 모든 이미지를 한 번에 보고 두 값을 종합 추출한다.
+  async readBillElec(
+    dto: ReadBillElecDto,
+  ): Promise<{ electricityTotalCost: number | null; electricityTotalUsage: number | null; raw: string }> {
+    const system =
+      '당신은 한국전력 전기요금 고지서 여러 장(청구서+내역서)을 함께 보고 숫자 항목을 추출하는 도우미입니다. ' +
+      '반드시 JSON 한 개만 출력하세요. 설명/코드블록 없이 순수 JSON.';
+    const userText =
+      '제공된 전기요금 고지서 이미지들(보통 청구서 1장 + 내역서 1장)을 모두 종합해 정확히 2개 값을 추출해 JSON으로만 답하세요.\n' +
+      '\n' +
+      '① "electricityTotalCost" = "전기요금계" 금액(원).\n' +
+      '   - "청구내역"의 기본요금·전력량요금 등을 더한 소계 행. "전자세금계산서"의 "공급가액"과 같은 값.\n' +
+      '   - 🚫 "영수금액"·"청구금액"·"당월요금계"·부가세·전력기금·TV수신료 금지. 가장 작은 "전기요금계"가 정답.\n' +
+      '\n' +
+      '② "electricityTotalUsage" = 당월 전기 사용량(kWh).\n' +
+      '   - 내역서의 "계절별 사용량"의 "계", 또는 "사용량 비교"의 "당월" 값. 단위는 kWh(원 아님).\n' +
+      '\n' +
+      '두 값은 서로 다른 페이지에 있을 수 있으니 모든 이미지를 살펴보세요. 못 찾는 값만 null.\n' +
+      '콤마 제거, 정수. 순수 JSON만.';
+
+    const images = (dto.images || []).map((img) => ({ image: img, mediaType: dto.mediaType }));
+    const raw = await this.callVision(system, images, userText, 300);
+    const parsed = this.parseJson(raw);
+    return {
+      electricityTotalCost: this.coerceNumber(parsed?.electricityTotalCost),
+      electricityTotalUsage: this.coerceNumber(parsed?.electricityTotalUsage),
+      raw,
+    };
+  }
+
+  // ── 공통 비전 호출 (이미지 1장 이상). OPENAI 우선, 없으면 ANTHROPIC ──
   private async callVision(
     systemText: string,
-    image: string,
-    mediaType: string | undefined,
+    images: { image: string; mediaType?: string }[],
     userText: string,
     maxTokens: number,
   ): Promise<string> {
     const openaiKey = this.config.get<string>('OPENAI_API_KEY');
     const anthropicKey = this.config.get<string>('ANTHROPIC_API_KEY');
-    if (openaiKey) return this.callOpenAI(openaiKey, systemText, image, mediaType, userText, maxTokens);
-    if (anthropicKey) return this.callAnthropic(anthropicKey, systemText, image, mediaType, userText, maxTokens);
+    if (openaiKey) return this.callOpenAI(openaiKey, systemText, images, userText, maxTokens);
+    if (anthropicKey) return this.callAnthropic(anthropicKey, systemText, images, userText, maxTokens);
     throw new InternalServerErrorException(
       'AI 키(OPENAI_API_KEY 또는 ANTHROPIC_API_KEY)가 설정되지 않았습니다 (Railway 변수에 추가하세요)',
     );
@@ -145,8 +177,7 @@ export class MeterOcrService {
   private async callOpenAI(
     key: string,
     systemText: string,
-    image: string,
-    mediaType: string | undefined,
+    images: { image: string; mediaType?: string }[],
     userText: string,
     maxTokens: number,
   ): Promise<string> {
@@ -160,7 +191,10 @@ export class MeterOcrService {
           role: 'user',
           content: [
             { type: 'text', text: userText },
-            { type: 'image_url', image_url: { url: `data:${mediaType || 'image/jpeg'};base64,${image}` } },
+            ...images.map((img) => ({
+              type: 'image_url',
+              image_url: { url: `data:${img.mediaType || 'image/jpeg'};base64,${img.image}` },
+            })),
           ],
         },
       ],
@@ -183,8 +217,7 @@ export class MeterOcrService {
   private async callAnthropic(
     key: string,
     systemText: string,
-    image: string,
-    mediaType: string | undefined,
+    images: { image: string; mediaType?: string }[],
     userText: string,
     maxTokens: number,
   ): Promise<string> {
@@ -197,7 +230,10 @@ export class MeterOcrService {
         {
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: image } },
+            ...images.map((img) => ({
+              type: 'image',
+              source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.image },
+            })),
             { type: 'text', text: userText },
           ],
         },

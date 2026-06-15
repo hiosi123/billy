@@ -27,9 +27,9 @@ class _CalculateTabState extends State<CalculateTab> {
 
   List<CalcResult> _results = [];
 
-  // 업로드한 고지서 사진 보존(화면 확인용)
+  // 업로드한 고지서 사진 보존(화면 확인용). 전기는 보통 2장(청구서+내역서).
   ({String data, String media})? _waterPhoto;
-  ({String data, String media})? _elecPhoto;
+  final List<({String data, String media})> _elecPhotos = [];
 
   @override
   void dispose() {
@@ -72,35 +72,50 @@ class _CalculateTabState extends State<CalculateTab> {
     return n;
   }
 
-  /// 단일 고지서 사진 → AI OCR → 합계 입력칸 자동 채움 + 사진 보존. (type: 'water'|'electricity')
-  Future<void> _readBill(String type) async {
+  /// 수도 고지서 1장 → AI OCR → 수도 항목 입력 + 사진 보존.
+  Future<void> _readWaterBill() async {
     final picked = await pickImageBase64(context, maxWidth: 2400); // 고지서는 글자가 작아 고해상도
     if (picked == null || !mounted) return;
     final api = context.read<AppProvider>().api;
     try {
-      final r = await api.readBill(image: picked.data, type: type, mediaType: picked.media);
+      final r = await api.readBill(image: picked.data, type: 'water', mediaType: picked.media);
       if (!mounted) return;
-      final filled = type == 'water' ? _applyWater(r) : _applyElec(r);
-      setState(() {
-        if (type == 'water') {
-          _waterPhoto = picked;
-        } else {
-          _elecPhoto = picked;
-        }
-      });
-      showSnack(context, filled > 0 ? '고지서에서 $filled개 항목을 입력했습니다 (사진과 비교해 확인)' : '고지서에서 값을 인식하지 못했습니다',
+      final filled = _applyWater(r);
+      setState(() => _waterPhoto = picked);
+      showSnack(context, filled > 0 ? '수도 고지서에서 $filled개 항목 입력 (사진과 비교해 확인)' : '수도 고지서에서 값을 인식하지 못했습니다',
           error: filled == 0);
     } catch (e) {
       if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
     }
   }
 
-  /// 수도·전기 구분 없이 여러 장을 한 번에 업로드 → AI가 종류 자동 판별 후 각 항목 입력 + 사진 보존.
+  /// 전기 고지서 여러 장(보통 청구서+내역서 2장) → 전기요금계 + 당월 사용량 종합 추출 + 사진 2장 보존.
+  Future<void> _readElecBills() async {
+    final images = await pickImagesBase64(maxWidth: 2400);
+    if (images.isEmpty || !mounted) return;
+    final api = context.read<AppProvider>().api;
+    try {
+      final r = await api.readBillElec(images: images.map((e) => e.data).toList(), mediaType: images.first.media);
+      if (!mounted) return;
+      final filled = _applyElec(r);
+      setState(() => _elecPhotos
+        ..clear()
+        ..addAll(images));
+      showSnack(context, filled > 0 ? '전기 고지서 ${images.length}장에서 $filled개 항목 입력 (사진과 비교해 확인)' : '전기 고지서에서 값을 인식하지 못했습니다',
+          error: filled == 0);
+    } catch (e) {
+      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+    }
+  }
+
+  /// 수도·전기 구분 없이 여러 장을 한 번에 업로드 → AI가 종류 자동 판별.
+  /// 전기로 분류된 사진들은 함께 보고 전기요금계+당월사용량을 종합 추출한다.
   Future<void> _readBillsAuto() async {
     final images = await pickImagesBase64(maxWidth: 2400);
     if (images.isEmpty || !mounted) return;
     final api = context.read<AppProvider>().api;
-    var water = 0, elec = 0, unknown = 0;
+    final elecImgs = <({String data, String media})>[];
+    var water = 0, unknown = 0;
     for (final img in images) {
       try {
         final r = await api.readBillAuto(image: img.data, mediaType: img.media);
@@ -110,9 +125,7 @@ class _CalculateTabState extends State<CalculateTab> {
           _waterPhoto = img;
           water++;
         } else if (type == 'electricity') {
-          _applyElec(r);
-          _elecPhoto = img;
-          elec++;
+          elecImgs.add(img); // 전기는 모아서 합산 추출
         } else {
           unknown++;
         }
@@ -120,13 +133,23 @@ class _CalculateTabState extends State<CalculateTab> {
         unknown++;
       }
     }
+    var elecFilled = 0;
+    if (elecImgs.isNotEmpty) {
+      try {
+        final er = await api.readBillElec(images: elecImgs.map((e) => e.data).toList(), mediaType: elecImgs.first.media);
+        elecFilled = _applyElec(er);
+        _elecPhotos
+          ..clear()
+          ..addAll(elecImgs);
+      } catch (_) {}
+    }
     if (!mounted) return;
     setState(() {});
-    final ok = water + elec;
+    final ok = water + (elecImgs.isNotEmpty ? 1 : 0);
     showSnack(
       context,
       ok > 0
-          ? '수도 $water · 전기 $elec 자동 인식${unknown > 0 ? ' · 분류실패 $unknown' : ''} (확인 후 계산)'
+          ? '수도 $water · 전기 ${elecImgs.length}장($elecFilled항목) 인식${unknown > 0 ? ' · 분류실패 $unknown' : ''} (확인 후 계산)'
           : '고지서 종류를 인식하지 못했습니다. 개별 버튼으로 다시 시도해주세요',
       error: ok == 0,
     );
@@ -264,7 +287,7 @@ class _CalculateTabState extends State<CalculateTab> {
                               label: '수도 고지서',
                               icon: Icons.photo_camera_rounded,
                               color: BillyColors.water,
-                              onPressed: () => _readBill('water'),
+                              onPressed: _readWaterBill,
                             ),
                           ),
                         ),
@@ -273,24 +296,24 @@ class _CalculateTabState extends State<CalculateTab> {
                           child: SizedBox(
                             height: 46,
                             child: AsyncButton(
-                              label: '전기 고지서',
+                              label: '전기 고지서 (2장)',
                               icon: Icons.photo_camera_rounded,
                               color: BillyColors.electricity,
-                              onPressed: () => _readBill('electricity'),
+                              onPressed: _readElecBills,
                             ),
                           ),
                         ),
                       ],
                     ),
-                    if (_waterPhoto != null || _elecPhoto != null) ...[
+                    if (_waterPhoto != null || _elecPhotos.isNotEmpty) ...[
                       const SizedBox(height: 10),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
-                          if (_waterPhoto != null)
-                            Expanded(child: _billThumb(context, '수도 고지서', _waterPhoto!, BillyColors.water)),
-                          if (_waterPhoto != null && _elecPhoto != null) const SizedBox(width: 10),
-                          if (_elecPhoto != null)
-                            Expanded(child: _billThumb(context, '전기 고지서', _elecPhoto!, BillyColors.electricity)),
+                          if (_waterPhoto != null) _billThumb(context, '수도 고지서', _waterPhoto!, BillyColors.water),
+                          for (var i = 0; i < _elecPhotos.length; i++)
+                            _billThumb(context, '전기 고지서 ${i + 1}', _elecPhotos[i], BillyColors.electricity),
                         ],
                       ),
                     ],
@@ -387,28 +410,34 @@ class _CalculateTabState extends State<CalculateTab> {
   /// 업로드한 고지서 사진 썸네일(탭하면 확대). 인식 숫자와 비교해 직접 수정 가능.
   Widget _billThumb(BuildContext context, String label, ({String data, String media}) photo, Color color) {
     final bytes = base64Decode(photo.data);
-    return GestureDetector(
-      onTap: () => showDialog(
-        context: context,
-        builder: (_) => Dialog(
-          backgroundColor: Colors.black,
-          insetPadding: const EdgeInsets.all(16),
-          child: InteractiveViewer(child: Image.memory(bytes)),
+    return SizedBox(
+      width: 104,
+      child: GestureDetector(
+        onTap: () => showDialog(
+          context: context,
+          builder: (_) => Dialog(
+            backgroundColor: Colors.black,
+            insetPadding: const EdgeInsets.all(16),
+            child: InteractiveViewer(child: Image.memory(bytes)),
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Icon(Icons.image_outlined, size: 12, color: color),
-            const SizedBox(width: 4),
-            Text(label, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: color)),
-          ]),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Stack(children: [
-              Image.memory(bytes, height: 64, width: double.infinity, fit: BoxFit.cover),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Icon(Icons.image_outlined, size: 12, color: color),
+              const SizedBox(width: 4),
+              Flexible(
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: color))),
+            ]),
+            const SizedBox(height: 4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(children: [
+                Image.memory(bytes, height: 64, width: 104, fit: BoxFit.cover),
               const Positioned(
                 right: 4,
                 bottom: 4,
@@ -423,8 +452,9 @@ class _CalculateTabState extends State<CalculateTab> {
                 ),
               ),
             ]),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }

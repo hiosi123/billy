@@ -155,6 +155,15 @@ class ApiService {
         await _post('/bills/read-bill-auto', {'image': image, 'mediaType': mediaType}));
   }
 
+  /// 전기 고지서 여러 장(청구서+내역서) → 전기요금계 + 당월 사용량 한번에 추출.
+  Future<Map<String, dynamic>> readBillElec({
+    required List<String> images,
+    String mediaType = 'image/jpeg',
+  }) async {
+    return Map<String, dynamic>.from(
+        await _post('/bills/read-bill-elec', {'images': images, 'mediaType': mediaType}));
+  }
+
   /// 관리비 계산. 응답은 roomNumber → 결과 맵.
   Future<List<CalcResult>> calculateBill(Map<String, dynamic> req) async {
     final res = await _post('/bills/calculate', req) as Map<String, dynamic>;

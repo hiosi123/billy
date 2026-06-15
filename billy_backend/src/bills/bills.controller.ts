@@ -22,6 +22,7 @@ import { ExcelBillDto } from './dto/excel-bill.dto';
 import { ReadMeterDto } from './dto/read-meter.dto';
 import { ReadBillDto } from './dto/read-bill.dto';
 import { ReadBillAutoDto } from './dto/read-bill-auto.dto';
+import { ReadBillElecDto } from './dto/read-bill-elec.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
@@ -80,6 +81,12 @@ export class BillsController {
   @Post('read-bill-auto')
   readBillAuto(@Body() dto: ReadBillAutoDto) {
     return this.meterOcrService.readBillAuto(dto);
+  }
+
+  /** 전기 고지서 여러 장(청구서+내역서) → 전기요금계 + 당월 사용량. */
+  @Post('read-bill-elec')
+  readBillElec(@Body() dto: ReadBillElecDto) {
+    return this.meterOcrService.readBillElec(dto);
   }
 
   @Post('excel')
