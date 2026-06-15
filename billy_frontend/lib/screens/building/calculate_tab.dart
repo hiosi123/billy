@@ -186,9 +186,15 @@ class _CalculateTabState extends State<CalculateTab> {
   Future<void> _readElecBills() async {
     final images = await pickImagesBase64(maxWidth: 2400);
     if (images.isEmpty || !mounted) return;
-    final api = context.read<AppProvider>().api;
+    final p = context.read<AppProvider>();
+    final api = p.api;
     try {
-      final r = await api.readBillElec(images: images.map((e) => e.data).toList(), mediaType: images.first.media);
+      final r = await api.readBillElec(
+        images: images.map((e) => e.data).toList(),
+        mediaType: images.first.media,
+        buildingId: p.selectedBuilding?.buildingId,
+        chargeMonth: p.chargeMonth,
+      );
       if (!mounted) return;
       final filled = _applyElec(r);
       setState(() => _elecPhotos
@@ -206,7 +212,8 @@ class _CalculateTabState extends State<CalculateTab> {
   Future<void> _readBillsAuto() async {
     final images = await pickImagesBase64(maxWidth: 2400);
     if (images.isEmpty || !mounted) return;
-    final api = context.read<AppProvider>().api;
+    final p = context.read<AppProvider>();
+    final api = p.api;
     final elecImgs = <({String data, String media})>[];
     var water = 0, unknown = 0;
     for (final img in images) {
@@ -229,7 +236,12 @@ class _CalculateTabState extends State<CalculateTab> {
     var elecFilled = 0;
     if (elecImgs.isNotEmpty) {
       try {
-        final er = await api.readBillElec(images: elecImgs.map((e) => e.data).toList(), mediaType: elecImgs.first.media);
+        final er = await api.readBillElec(
+          images: elecImgs.map((e) => e.data).toList(),
+          mediaType: elecImgs.first.media,
+          buildingId: p.selectedBuilding?.buildingId,
+          chargeMonth: p.chargeMonth,
+        );
         elecFilled = _applyElec(er);
         _elecPhotos
           ..clear()

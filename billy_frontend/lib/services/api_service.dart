@@ -156,12 +156,19 @@ class ApiService {
   }
 
   /// 전기 고지서 여러 장(청구서+내역서) → 전기요금계 + 당월 사용량 한번에 추출.
+  /// buildingId/chargeMonth 를 주면 같은 건물의 직전 정답 예시(RAG)를 함께 보내 정확도를 높인다.
   Future<Map<String, dynamic>> readBillElec({
     required List<String> images,
     String mediaType = 'image/jpeg',
+    int? buildingId,
+    String? chargeMonth,
   }) async {
-    return Map<String, dynamic>.from(
-        await _post('/bills/read-bill-elec', {'images': images, 'mediaType': mediaType}));
+    return Map<String, dynamic>.from(await _post('/bills/read-bill-elec', {
+      'images': images,
+      'mediaType': mediaType,
+      if (buildingId != null) 'buildingId': buildingId,
+      if (chargeMonth != null) 'chargeMonth': chargeMonth,
+    }));
   }
 
   /// 관리비 계산. 응답은 roomNumber → 결과 맵.

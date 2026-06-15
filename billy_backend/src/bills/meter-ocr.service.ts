@@ -1,11 +1,18 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ReadMeterDto } from './dto/read-meter.dto';
 import { ReadBillDto } from './dto/read-bill.dto';
 import { ReadBillAutoDto } from './dto/read-bill-auto.dto';
 import { ReadBillElecDto } from './dto/read-bill-elec.dto';
+import { CalcInputsService } from '../calc-inputs/calc-inputs.service';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
+
+/** 비전 호출 메시지 파트(텍스트 / base64 이미지 / 공개 URL 이미지). few-shot RAG 에 사용. */
+type VisionPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; base64: string; mediaType?: string }
+  | { kind: 'imageUrl'; url: string };
 
 /**
  * Claude 비전으로 (1) 계량기 사진의 지침값, (2) 공공요금 고지서의 합계 항목을 읽는다.
@@ -13,7 +20,12 @@ const API_URL = 'https://api.anthropic.com/v1/messages';
  */
 @Injectable()
 export class MeterOcrService {
-  constructor(private config: ConfigService) {}
+  private readonly logger = new Logger(MeterOcrService.name);
+
+  constructor(
+    private config: ConfigService,
+    private calcInputs: CalcInputsService,
+  ) {}
 
   // ── 1. 호실 계량기 사진 → 지침값 1개 ────────────────────────────────
   async readMeter(dto: ReadMeterDto): Promise<{ value: number | null; raw: string }> {
@@ -30,7 +42,7 @@ export class MeterOcrService {
       '읽을 수 없으면 정확히 "null" 이라고만 답하세요.';
     const userText = `이 ${meterKo} 사진의 지침값을 읽어주세요. ${hint} 숫자만 답하세요.`;
 
-    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 50);
+    const raw = await this.callVision(system, this.toParts(userText, [{ image: dto.image, mediaType: dto.mediaType }]), 50);
     return { value: this.parseNumber(raw), raw };
   }
 
@@ -76,7 +88,7 @@ export class MeterOcrService {
         '콤마 제거하고 정수로. 설명 없이 순수 JSON만 출력.';
     }
 
-    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 200, true);
+    const raw = await this.callVision(system, this.toParts(userText, [{ image: dto.image, mediaType: dto.mediaType }]), 200, true);
     const parsed = this.parseJson(raw);
     const out: { [k: string]: number | string | null } = { raw };
     for (const k of keys) out[k] = this.coerceNumber(parsed?.[k]);
@@ -108,7 +120,7 @@ export class MeterOcrService {
       '\n' +
       '콤마 제거하고 정수로. 판별된 type의 필드만 채워 순수 JSON만 출력.';
 
-    const raw = await this.callVision(system, [{ image: dto.image, mediaType: dto.mediaType }], userText, 300, true);
+    const raw = await this.callVision(system, this.toParts(userText, [{ image: dto.image, mediaType: dto.mediaType }]), 300, true);
     const parsed = this.parseJson(raw);
     const type = parsed?.type === 'water' || parsed?.type === 'electricity' ? parsed.type : null;
     const out: { type: 'water' | 'electricity' | null; [k: string]: number | string | null } = { type, raw };
@@ -131,25 +143,62 @@ export class MeterOcrService {
     const system =
       '당신은 한국전력 전기요금 고지서 여러 장(청구서+내역서)을 함께 보고 숫자 항목을 추출하는 도우미입니다. ' +
       '반드시 JSON 한 개만 출력하세요. 설명/코드블록 없이 순수 JSON.';
-    const userText =
-      '제공된 전기요금 고지서 이미지들(보통 청구서 1장 + 내역서 1장)을 모두 종합해 정확히 2개 값을 추출해 JSON으로만 답하세요.\n' +
-      '\n' +
-      '① "electricityTotalCost" = 전기요금계(원). 아래 2가지로 교차 확인해 가장 또렷한 값을 쓰세요. (둘은 항상 같은 값)\n' +
-      '   (a) ★1순위★ "전자세금계산서" 라는 박스 안의 "공급가액" 옆 숫자. ← 깨끗한 표라 가장 정확합니다.\n' +
+    const rules =
+      '추출 규칙:\n' +
+      '① "electricityTotalCost" = 전기요금계(원). 아래 2가지로 교차 확인해 또렷한 값을 쓰세요. (둘은 항상 같은 값)\n' +
+      '   (a) ★1순위★ "전자세금계산서" 박스 안의 "공급가액" 옆 숫자. ← 깨끗한 표라 가장 정확.\n' +
       '   (b) "청구내역" 표의 "전기요금계" 글자 옆 숫자.\n' +
-      '   - (a)공급가액 과 (b)전기요금계 는 반드시 일치합니다. 둘 다 확인해 같은 숫자를 고르세요.\n' +
-      '   - 🚫 절대 쓰면 안 되는 더 큰 숫자들: "청구금액"·"금액"(맨아래 큰 총액)·"영수금액"·"수납금액"·"당월요금계"·부가가치세·전력기금·TV수신료.\n' +
-      '   - 크기 순서: (전기요금계=공급가액) < (당월요금계) < (청구금액). 가장 작은 전기요금계가 정답.\n' +
-      '   - 추측 금지. 공급가액/전기요금계 어느 쪽도 또렷이 못 읽으면 null.\n' +
-      '\n' +
+      '   - 🚫 절대 금지(더 큰 숫자): "청구금액"·"금액"(맨아래 총액)·"영수금액"·"수납금액"·"당월요금계"·부가세·전력기금·TV수신료.\n' +
+      '   - 크기 순서: (전기요금계=공급가액) < (당월요금계) < (청구금액). 가장 작은 전기요금계가 정답. 추측 금지, 못 읽으면 null.\n' +
       '② "electricityTotalUsage" = 당월 전기 사용량(kWh).\n' +
-      '   - 내역서의 "계절별 사용량"의 "계", 또는 "사용량 비교"의 "당월" 값. 단위는 kWh(원 아님).\n' +
-      '\n' +
-      '두 값은 서로 다른 페이지에 있을 수 있으니 모든 이미지를 살펴보세요. 못 찾는 값만 null.\n' +
-      '콤마 제거, 정수. 순수 JSON만.';
+      '   - "막대그래프(월별 최대수요전력 추이)"가 있는 페이지가 사용량 페이지입니다.\n' +
+      '   - 그 페이지의 "계절별 사용량"의 "계" 또는 "사용량 비교"의 "당월" 값. 단위 kWh(원 아님).\n' +
+      '두 값은 서로 다른 페이지에 있을 수 있으니 모든 이미지를 살펴보세요. 콤마 제거, 정수. 순수 JSON만.';
 
-    const images = (dto.images || []).map((img) => ({ image: img, mediaType: dto.mediaType }));
-    const raw = await this.callVision(system, images, userText, 300, true);
+    // ── RAG: 같은 건물의 직전 "정답 예시"를 few-shot 으로 함께 보낸다 ──
+    // 같은 한전 양식이라, 예시의 정답 위치를 그대로 알려주면 정확도가 크게 오른다.
+    let example: Awaited<ReturnType<CalcInputsService['latestElecExample']>> = null;
+    if (dto.buildingId) {
+      try {
+        example = await this.calcInputs.latestElecExample(dto.buildingId, dto.chargeMonth);
+      } catch {
+        example = null;
+      }
+    }
+    const buildParts = (withExample: boolean): VisionPart[] => {
+      const ps: VisionPart[] = [];
+      if (withExample && example) {
+        ps.push({
+          kind: 'text',
+          text:
+            '다음은 "같은 건물의 지난 전기 고지서 예시"입니다(양식 동일). ' +
+            `이 예시에서 정답은 전기요금계=${example.electricityTotalCost}원, 당월사용량=${example.electricityTotalUsage}kWh 였습니다. ` +
+            '아래 예시 이미지에서 그 숫자들이 어디에 적혀 있는지 위치를 기억하세요.',
+        });
+        for (const url of example.elecPhotos) {
+          ps.push(url.startsWith('http') ? { kind: 'imageUrl', url } : { kind: 'image', base64: url });
+        }
+      }
+      ps.push({
+        kind: 'text',
+        text:
+          (withExample && example
+            ? '이제 "이번달" 전기 고지서입니다. 위 예시와 같은 위치의 값을 읽어 JSON으로만 답하세요.\n'
+            : '제공된 전기요금 고지서 이미지들(보통 청구서+내역서)을 종합해 JSON으로만 답하세요.\n') + rules,
+      });
+      for (const img of dto.images || []) ps.push({ kind: 'image', base64: img, mediaType: dto.mediaType });
+      return ps;
+    };
+
+    // 예시(S3 URL) 포함해서 호출. 실패하면(예: 예시 URL 비공개로 가져오기 실패) 예시 없이 재시도.
+    let raw: string;
+    try {
+      raw = await this.callVision(system, buildParts(!!example), 300, true);
+    } catch (err) {
+      if (!example) throw err;
+      this.logger.warn(`RAG 예시 포함 호출 실패 → 예시 없이 재시도: ${String(err)}`);
+      raw = await this.callVision(system, buildParts(false), 300, true);
+    }
     const parsed = this.parseJson(raw);
     return {
       electricityTotalCost: this.coerceNumber(parsed?.electricityTotalCost),
@@ -158,50 +207,52 @@ export class MeterOcrService {
     };
   }
 
-  // ── 공통 비전 호출 (이미지 1장 이상). OPENAI 우선, 없으면 ANTHROPIC ──
-  // strong=true 면 고지서 표 인식용 상위 모델(gpt-4o)을 쓴다(계량기 숫자는 false).
+  // ── 공통 비전 호출 (텍스트/이미지 파트 혼합 = few-shot RAG 가능) ──
+  // 이미지 1장 이상. base64 또는 공개 URL(S3 예시) 모두 지원. OPENAI 우선.
   private async callVision(
     systemText: string,
-    images: { image: string; mediaType?: string }[],
-    userText: string,
+    parts: VisionPart[],
     maxTokens: number,
     strong = false,
   ): Promise<string> {
     const openaiKey = this.config.get<string>('OPENAI_API_KEY');
     const anthropicKey = this.config.get<string>('ANTHROPIC_API_KEY');
-    if (openaiKey) return this.callOpenAI(openaiKey, systemText, images, userText, maxTokens, strong);
-    if (anthropicKey) return this.callAnthropic(anthropicKey, systemText, images, userText, maxTokens, strong);
+    if (openaiKey) return this.callOpenAI(openaiKey, systemText, parts, maxTokens, strong);
+    if (anthropicKey) return this.callAnthropic(anthropicKey, systemText, parts, maxTokens, strong);
     throw new InternalServerErrorException(
       'AI 키(OPENAI_API_KEY 또는 ANTHROPIC_API_KEY)가 설정되지 않았습니다 (Railway 변수에 추가하세요)',
     );
   }
 
+  /** 단순 호출용: 텍스트 1개 + base64 이미지들 → 파트 배열. */
+  private toParts(userText: string, images: { image: string; mediaType?: string }[]): VisionPart[] {
+    return [
+      { kind: 'text', text: userText },
+      ...images.map((i) => ({ kind: 'image' as const, base64: i.image, mediaType: i.mediaType })),
+    ];
+  }
+
   private async callOpenAI(
     key: string,
     systemText: string,
-    images: { image: string; mediaType?: string }[],
-    userText: string,
+    parts: VisionPart[],
     maxTokens: number,
-    strong = false,
+    strong: boolean,
   ): Promise<string> {
     const model = strong
-      ? this.config.get<string>('OPENAI_BILL_MODEL', 'gpt-4o')
+      ? this.config.get<string>('OPENAI_BILL_MODEL', 'gpt-4o-mini')
       : this.config.get<string>('OPENAI_MODEL', 'gpt-4o-mini');
+    const content = parts.map((p) => {
+      if (p.kind === 'text') return { type: 'text', text: p.text };
+      if (p.kind === 'imageUrl') return { type: 'image_url', image_url: { url: p.url } };
+      return { type: 'image_url', image_url: { url: `data:${p.mediaType || 'image/jpeg'};base64,${p.base64}` } };
+    });
     const body = {
       model,
       max_tokens: maxTokens,
       messages: [
         { role: 'system', content: systemText },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: userText },
-            ...images.map((img) => ({
-              type: 'image_url',
-              image_url: { url: `data:${img.mediaType || 'image/jpeg'};base64,${img.image}` },
-            })),
-          ],
-        },
+        { role: 'user', content },
       ],
     };
     let res: any;
@@ -222,30 +273,23 @@ export class MeterOcrService {
   private async callAnthropic(
     key: string,
     systemText: string,
-    images: { image: string; mediaType?: string }[],
-    userText: string,
+    parts: VisionPart[],
     maxTokens: number,
-    strong = false,
+    strong: boolean,
   ): Promise<string> {
     const model = strong
       ? this.config.get<string>('ANTHROPIC_BILL_MODEL', 'claude-sonnet-4-6')
       : this.config.get<string>('ANTHROPIC_MODEL', 'claude-sonnet-4-6');
+    const content = parts.map((p) => {
+      if (p.kind === 'text') return { type: 'text', text: p.text };
+      if (p.kind === 'imageUrl') return { type: 'image', source: { type: 'url', url: p.url } };
+      return { type: 'image', source: { type: 'base64', media_type: p.mediaType || 'image/jpeg', data: p.base64 } };
+    });
     const body = {
       model,
       max_tokens: maxTokens,
       system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
-      messages: [
-        {
-          role: 'user',
-          content: [
-            ...images.map((img) => ({
-              type: 'image',
-              source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.image },
-            })),
-            { type: 'text', text: userText },
-          ],
-        },
-      ],
+      messages: [{ role: 'user', content }],
     };
     let res: any;
     try {
