@@ -55,11 +55,35 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  static String _nextMonth(String yyyymm) {
+    final y = int.parse(yyyymm.substring(0, 4));
+    final m = int.parse(yyyymm.substring(4, 6));
+    final d = DateTime(y, m + 1, 1);
+    return '${d.year}${d.month.toString().padLeft(2, '0')}';
+  }
+
+  /// 검침/계산 기본 월 = "관리비 내역이 아직 없는 달"(마지막 저장 내역 다음 달).
+  /// 내역이 하나도 없으면 이번 달로.
+  Future<void> _applyDefaultMonth(int buildingId) async {
+    try {
+      final histories = await api.getAllBillHistories();
+      final months = histories
+          .where((h) => h.buildingId == buildingId && h.chargeMonth.length == 6)
+          .map((h) => h.chargeMonth)
+          .toList()
+        ..sort();
+      chargeMonth = months.isEmpty ? currentChargeMonth() : _nextMonth(months.last);
+    } catch (_) {
+      chargeMonth = currentChargeMonth();
+    }
+  }
+
   Future<void> selectBuilding(Building b) async {
     selectedBuilding = b;
     floors = [];
     rooms = [];
     fee = BuildingFee.empty;
+    await _applyDefaultMonth(b.buildingId); // 비어있는 달 기준으로 기본 월 설정
     await loadDetail();
   }
 
