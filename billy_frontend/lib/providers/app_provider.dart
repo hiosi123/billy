@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
+import '../services/nav_state.dart';
 import '../models/building.dart';
 import '../models/floor.dart';
 import '../models/room.dart';
@@ -52,6 +53,7 @@ class AppProvider extends ChangeNotifier {
   String chargeMonth = currentChargeMonth();
   void setChargeMonth(String m) {
     chargeMonth = m;
+    NavState.setMonth(m); // 새로고침 복원용
     notifyListeners();
   }
 
@@ -78,12 +80,17 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> selectBuilding(Building b) async {
+  Future<void> selectBuilding(Building b, {String? restoreMonth}) async {
     selectedBuilding = b;
     floors = [];
     rooms = [];
     fee = BuildingFee.empty;
-    await _applyDefaultMonth(b.buildingId); // 비어있는 달 기준으로 기본 월 설정
+    NavState.setBuilding(b.buildingId); // 새로고침 복원용
+    if (restoreMonth != null && restoreMonth.length == 6) {
+      chargeMonth = restoreMonth; // 새로고침 복원: 저장돼 있던 월 유지
+    } else {
+      await _applyDefaultMonth(b.buildingId); // 비어있는 달 기준으로 기본 월 설정
+    }
     await loadDetail();
   }
 

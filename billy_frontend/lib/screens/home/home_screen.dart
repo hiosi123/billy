@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
 import '../../services/auth_service.dart';
+import '../../services/nav_state.dart';
 import '../../providers/app_provider.dart';
 import '../../models/building.dart';
 import '../../widgets/common.dart';
@@ -18,11 +19,35 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => context.read<AppProvider>().loadBuildings());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initAndRestore());
+  }
+
+  /// 건물 목록 로드 후, 새로고침 전에 보던 건물이 있으면 그 건물·탭·월로 자동 복원.
+  Future<void> _initAndRestore() async {
+    final p = context.read<AppProvider>();
+    await p.loadBuildings();
+    if (!mounted) return;
+    final nav = await NavState.read();
+    if (nav.buildingId == null) return;
+    Building? target;
+    for (final b in p.buildings) {
+      if (b.buildingId == nav.buildingId) {
+        target = b;
+        break;
+      }
+    }
+    if (target == null || !mounted) return;
+    await p.selectBuilding(target, restoreMonth: nav.month);
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => BuildingDetailScreen(initialIndex: nav.tab)),
+    );
   }
 
   Future<void> _logout() async {
     await AuthService.clear();
+    await NavState.clearAll();
     if (!mounted) return;
     context.read<AppProvider>().reset();
     Navigator.pushReplacementNamed(context, '/');

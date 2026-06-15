@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
 import '../../providers/app_provider.dart';
+import '../../services/nav_state.dart';
 import '../../utils/format.dart';
 import '../../widgets/common.dart';
 import 'rooms_tab.dart';
@@ -10,8 +11,38 @@ import 'calculate_tab.dart';
 import 'history_tab.dart';
 import 'fee_settings_tab.dart';
 
-class BuildingDetailScreen extends StatelessWidget {
-  const BuildingDetailScreen({super.key});
+class BuildingDetailScreen extends StatefulWidget {
+  /// 새로고침 복원 시 시작 탭.
+  final int initialIndex;
+  const BuildingDetailScreen({super.key, this.initialIndex = 0});
+
+  @override
+  State<BuildingDetailScreen> createState() => _BuildingDetailScreenState();
+}
+
+class _BuildingDetailScreenState extends State<BuildingDetailScreen> with SingleTickerProviderStateMixin {
+  late final TabController _tab;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 5, vsync: this, initialIndex: widget.initialIndex.clamp(0, 4));
+    NavState.setTab(_tab.index);
+    _tab.addListener(() {
+      if (!_tab.indexIsChanging) NavState.setTab(_tab.index); // 현재 탭 기억(새로고침 복원용)
+    });
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  void _back() {
+    NavState.clearBuilding(); // 홈으로 나가면 새로고침해도 홈 유지
+    Navigator.pop(context);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,9 +53,7 @@ class BuildingDetailScreen extends StatelessWidget {
     }
     final totalSpace = p.floors.fold<double>(0, (s, f) => s + f.floorSpace);
 
-    return DefaultTabController(
-      length: 5,
-      child: Scaffold(
+    return Scaffold(
         backgroundColor: BillyColors.headerEnd,
         body: Column(
           children: [
@@ -40,7 +69,7 @@ class BuildingDetailScreen extends StatelessWidget {
                       Row(
                         children: [
                           IconButton(
-                            onPressed: () => Navigator.pop(context),
+                            onPressed: _back,
                             icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
                           ),
                           Expanded(
@@ -95,7 +124,8 @@ class BuildingDetailScreen extends StatelessWidget {
                   children: [
                     Material(
                       color: Colors.white,
-                      child: const TabBar(
+                      child: TabBar(
+                        controller: _tab,
                         isScrollable: true,
                         tabAlignment: TabAlignment.start,
                         labelColor: BillyColors.headerEnd,
@@ -103,9 +133,9 @@ class BuildingDetailScreen extends StatelessWidget {
                         indicatorColor: BillyColors.headerEnd,
                         indicatorWeight: 3,
                         indicatorSize: TabBarIndicatorSize.label,
-                        labelStyle: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
-                        unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
-                        tabs: [
+                        labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
+                        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+                        tabs: const [
                           Tab(text: '호실'),
                           Tab(text: '검침 입력'),
                           Tab(text: '관리비 계산'),
@@ -118,8 +148,9 @@ class BuildingDetailScreen extends StatelessWidget {
                     Expanded(
                       child: p.loadingDetail && p.rooms.isEmpty && p.floors.isEmpty
                           ? const LoadingView()
-                          : const TabBarView(
-                              children: [
+                          : TabBarView(
+                              controller: _tab,
+                              children: const [
                                 RoomsTab(),
                                 MeasureTab(),
                                 CalculateTab(),
@@ -134,8 +165,7 @@ class BuildingDetailScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 
   Widget _kpi(String label, String value) {

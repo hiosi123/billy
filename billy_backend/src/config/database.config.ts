@@ -7,8 +7,9 @@ import { Room } from '../rooms/room.entity';
 import { Bill } from '../bills/bill.entity';
 import { BillHistory } from '../bill-histories/bill-history.entity';
 import { BuildingFee } from '../building-fees/building-fee.entity';
+import { CalcInput } from '../calc-inputs/calc-input.entity';
 
-const ALL_ENTITIES = [User, Building, Floor, Room, Bill, BillHistory, BuildingFee];
+const ALL_ENTITIES = [User, Building, Floor, Room, Bill, BillHistory, BuildingFee, CalcInput];
 
 /**
  * PostgreSQL 연결. 스키마는 sql/schema.sql + sql/migrations 로 관리한다.
