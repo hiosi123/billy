@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ReadMeterDto } from './dto/read-meter.dto';
 import { ReadBillDto } from './dto/read-bill.dto';
+import { ReadBillAutoDto } from './dto/read-bill-auto.dto';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 
@@ -58,18 +59,68 @@ export class MeterOcrService {
         '당신은 한국전력 전기요금 고지서 사진에서 숫자 항목을 추출하는 도우미입니다. ' +
         '반드시 JSON 한 개만 출력하세요. 설명/코드블록 없이 순수 JSON.';
       userText =
-        '이 전기요금 고지서/명세서에서 다음을 정확히 추출해 JSON으로만 답하세요.\n' +
-        '- "electricityTotalCost": "전기요금계" 라고 정확히 적힌 라벨의 금액(원)만. ' +
-        '이것은 기본요금+전력량요금 소계이며 "청구금액"(가장 크고 진한 총액)·"당월요금계"·부가세·전력기금과 다릅니다.\n' +
-        '  ⚠️ "전기요금계" 글자와 그 옆 숫자를 또렷하게 읽지 못하면 추측하지 말고 반드시 null 로 두세요. ' +
-        '청구금액/당월요금계/총액을 대신 넣는 것은 금지입니다.\n' +
-        '- "electricityTotalUsage": 당월 사용량(kWh). "사용량 비교"나 "지침 및 사용량"의 당월 합계 kWh (금액 원이 아니라 kWh). 못 읽으면 null.\n' +
-        '콤마 제거, 정수. 순수 JSON만.';
+        '이 한국전력 전기요금 고지서에서 정확히 2개 값을 추출해 JSON으로만 답하세요.\n' +
+        '\n' +
+        '① "electricityTotalCost" = "전기요금계" 라벨의 금액(원).\n' +
+        '   - 위치: "청구내역" 표 안에서 기본요금·전력량요금 등을 더한 소계 행.\n' +
+        '   - 검증: 이 값은 "전자세금계산서"의 "공급가액"과 정확히 같습니다. ' +
+        '두 값(전기요금계 = 공급가액)이 일치하는 숫자를 고르세요.\n' +
+        '   - 🚫 절대 아래 값을 넣지 마세요(자주 혼동됨):\n' +
+        '       · "영수금액"(납부영수증·이전달 칸의 금액) ❌\n' +
+        '       · "청구금액"(가장 크고 진한 최종 총액) ❌\n' +
+        '       · "당월요금계" ❌  · 부가가치세 ❌  · 전력기금 ❌  · TV수신료 ❌\n' +
+        '   - 크기 순서는 (전기요금계) < (당월요금계) < (청구금액) 이며, 우리는 가장 작은 "전기요금계"가 필요합니다.\n' +
+        '   - "전기요금계"와 "공급가액"을 또렷이 못 읽으면 추측 말고 null.\n' +
+        '\n' +
+        '② "electricityTotalUsage" = 당월 전기 사용량(kWh).\n' +
+        '   - 위치: "사용량 비교"의 "당월" 값, 또는 "계절별 사용량"의 "계", 또는 사용량 그래프 당월값.\n' +
+        '   - 단위는 kWh(전력량)이며 금액(원)이 아닙니다. 못 읽으면 null.\n' +
+        '\n' +
+        '콤마 제거하고 정수로. 설명 없이 순수 JSON만 출력.';
     }
 
     const raw = await this.callVision(system, dto.image, dto.mediaType, userText, 200);
     const parsed = this.parseJson(raw);
     const out: { [k: string]: number | string | null } = { raw };
+    for (const k of keys) out[k] = this.coerceNumber(parsed?.[k]);
+    return out;
+  }
+
+  // ── 3. 고지서 사진 → 수도/전기 자동 판별 + 항목 추출 ───────────────────
+  // (수도·전기 구분 없이 여러 장 업로드할 때 한 장씩 호출)
+  async readBillAuto(dto: ReadBillAutoDto): Promise<{ type: 'water' | 'electricity' | null; [k: string]: number | string | null }> {
+    const system =
+      '당신은 한국 공공요금 고지서(수도 또는 전기) 사진을 판별하고 숫자 항목을 추출하는 도우미입니다. ' +
+      '반드시 JSON 한 개만 출력하세요. 설명/코드블록 없이 순수 JSON.';
+    const userText =
+      '이 고지서가 "수도(상수도)" 요금인지 "전기(한국전력)" 요금인지 먼저 판별한 뒤, 해당 항목만 추출해 JSON으로만 답하세요.\n' +
+      '반드시 "type" 필드에 "water" 또는 "electricity" 를 넣으세요.\n' +
+      '\n' +
+      '[수도(상수도)이면] type="water" 이고 아래 필드를 채웁니다.\n' +
+      '  표는 보통 [내역 | 상수도 | 하수도(지하수) | 물이용부담금 | 계] 열입니다.\n' +
+      '  - "waterSupplyCost": "상수도" 열의 "사용요금" 행 값(원).\n' +
+      '  - "waterSewerCost": "하수도(지하수)" 열의 "사용요금" 행 값(원). 보통 상수도보다 큼.\n' +
+      '  - "waterTotalUsage": 당월 물 사용량(톤). "사용량 비교"의 당월 상수도 값.\n' +
+      '  - "waterTotalCost": 당월 청구금액 "계"(전체 합계, 원).\n' +
+      '  ⚠️ 상수도/하수도 값을 절대 바꿔 쓰지 마세요. 물이용부담금은 사용요금이 아닙니다.\n' +
+      '\n' +
+      '[전기(한국전력)이면] type="electricity" 이고 아래 필드를 채웁니다.\n' +
+      '  - "electricityTotalCost": "전기요금계" 라벨의 금액(원). "전자세금계산서"의 "공급가액"과 같은 값.\n' +
+      '      🚫 "영수금액"·"청구금액"·"당월요금계"·부가세·전력기금·TV수신료 는 금지. 가장 작은 "전기요금계"가 정답.\n' +
+      '  - "electricityTotalUsage": 당월 사용량(kWh). "사용량 비교" 당월 또는 "계절별 사용량"의 "계".\n' +
+      '\n' +
+      '콤마 제거하고 정수로. 판별된 type의 필드만 채워 순수 JSON만 출력.';
+
+    const raw = await this.callVision(system, dto.image, dto.mediaType, userText, 300);
+    const parsed = this.parseJson(raw);
+    const type = parsed?.type === 'water' || parsed?.type === 'electricity' ? parsed.type : null;
+    const out: { type: 'water' | 'electricity' | null; [k: string]: number | string | null } = { type, raw };
+    const keys =
+      type === 'water'
+        ? ['waterTotalUsage', 'waterSupplyCost', 'waterSewerCost', 'waterTotalCost']
+        : type === 'electricity'
+          ? ['electricityTotalCost', 'electricityTotalUsage']
+          : [];
     for (const k of keys) out[k] = this.coerceNumber(parsed?.[k]);
     return out;
   }

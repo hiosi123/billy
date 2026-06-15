@@ -21,6 +21,7 @@ import { CalculateBillDto } from './dto/calculate-bill.dto';
 import { ExcelBillDto } from './dto/excel-bill.dto';
 import { ReadMeterDto } from './dto/read-meter.dto';
 import { ReadBillDto } from './dto/read-bill.dto';
+import { ReadBillAutoDto } from './dto/read-bill-auto.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
@@ -73,6 +74,12 @@ export class BillsController {
   @Post('read-bill')
   readBill(@Body() dto: ReadBillDto) {
     return this.meterOcrService.readBill(dto);
+  }
+
+  /** 고지서 사진 → 수도/전기 자동 판별 + 항목 추출(여러 장 한번에 업로드용). */
+  @Post('read-bill-auto')
+  readBillAuto(@Body() dto: ReadBillAutoDto) {
+    return this.meterOcrService.readBillAuto(dto);
   }
 
   @Post('excel')

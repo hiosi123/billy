@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
@@ -26,6 +27,10 @@ class _CalculateTabState extends State<CalculateTab> {
 
   List<CalcResult> _results = [];
 
+  // 업로드한 고지서 사진 보존(화면 확인용)
+  ({String data, String media})? _waterPhoto;
+  ({String data, String media})? _elecPhoto;
+
   @override
   void dispose() {
     for (final c in [_elecCost, _elecUsage, _waterCost, _waterUsage, _waterSupply, _waterSewer]) {
@@ -37,7 +42,37 @@ class _CalculateTabState extends State<CalculateTab> {
   // 콤마가 섞여 있어도 안전하게 숫자로 파싱.
   double _n(TextEditingController c) => double.tryParse(c.text.replaceAll(',', '').trim()) ?? 0;
 
-  /// 공공요금 고지서 사진 → AI OCR → 합계 입력칸 자동 채움. (type: 'water'|'electricity')
+  int _applyWater(Map r) {
+    var n = 0;
+    void fill(TextEditingController c, dynamic v) {
+      if (v is num) {
+        c.text = money(v);
+        n++;
+      }
+    }
+
+    fill(_waterUsage, r['waterTotalUsage']);
+    fill(_waterSupply, r['waterSupplyCost']);
+    fill(_waterSewer, r['waterSewerCost']);
+    fill(_waterCost, r['waterTotalCost']);
+    return n;
+  }
+
+  int _applyElec(Map r) {
+    var n = 0;
+    void fill(TextEditingController c, dynamic v) {
+      if (v is num) {
+        c.text = money(v);
+        n++;
+      }
+    }
+
+    fill(_elecCost, r['electricityTotalCost']);
+    fill(_elecUsage, r['electricityTotalUsage']);
+    return n;
+  }
+
+  /// 단일 고지서 사진 → AI OCR → 합계 입력칸 자동 채움 + 사진 보존. (type: 'water'|'electricity')
   Future<void> _readBill(String type) async {
     final picked = await pickImageBase64(context, maxWidth: 2400); // 고지서는 글자가 작아 고해상도
     if (picked == null || !mounted) return;
@@ -45,28 +80,56 @@ class _CalculateTabState extends State<CalculateTab> {
     try {
       final r = await api.readBill(image: picked.data, type: type, mediaType: picked.media);
       if (!mounted) return;
-      var filled = 0;
-      void fill(TextEditingController c, dynamic v) {
-        if (v is num) {
-          c.text = money(v);
-          filled++;
+      final filled = type == 'water' ? _applyWater(r) : _applyElec(r);
+      setState(() {
+        if (type == 'water') {
+          _waterPhoto = picked;
+        } else {
+          _elecPhoto = picked;
         }
-      }
-      if (type == 'water') {
-        fill(_waterUsage, r['waterTotalUsage']);
-        fill(_waterSupply, r['waterSupplyCost']);
-        fill(_waterSewer, r['waterSewerCost']);
-        fill(_waterCost, r['waterTotalCost']);
-      } else {
-        fill(_elecCost, r['electricityTotalCost']);
-        fill(_elecUsage, r['electricityTotalUsage']);
-      }
-      setState(() {});
-      showSnack(context, filled > 0 ? '고지서에서 $filled개 항목을 입력했습니다 (확인 후 계산)' : '고지서에서 값을 인식하지 못했습니다',
+      });
+      showSnack(context, filled > 0 ? '고지서에서 $filled개 항목을 입력했습니다 (사진과 비교해 확인)' : '고지서에서 값을 인식하지 못했습니다',
           error: filled == 0);
     } catch (e) {
       if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
     }
+  }
+
+  /// 수도·전기 구분 없이 여러 장을 한 번에 업로드 → AI가 종류 자동 판별 후 각 항목 입력 + 사진 보존.
+  Future<void> _readBillsAuto() async {
+    final images = await pickImagesBase64(maxWidth: 2400);
+    if (images.isEmpty || !mounted) return;
+    final api = context.read<AppProvider>().api;
+    var water = 0, elec = 0, unknown = 0;
+    for (final img in images) {
+      try {
+        final r = await api.readBillAuto(image: img.data, mediaType: img.media);
+        final type = r['type'];
+        if (type == 'water') {
+          _applyWater(r);
+          _waterPhoto = img;
+          water++;
+        } else if (type == 'electricity') {
+          _applyElec(r);
+          _elecPhoto = img;
+          elec++;
+        } else {
+          unknown++;
+        }
+      } catch (_) {
+        unknown++;
+      }
+    }
+    if (!mounted) return;
+    setState(() {});
+    final ok = water + elec;
+    showSnack(
+      context,
+      ok > 0
+          ? '수도 $water · 전기 $elec 자동 인식${unknown > 0 ? ' · 분류실패 $unknown' : ''} (확인 후 계산)'
+          : '고지서 종류를 인식하지 못했습니다. 개별 버튼으로 다시 시도해주세요',
+      error: ok == 0,
+    );
   }
 
   Future<void> _calculate() async {
@@ -167,12 +230,31 @@ class _CalculateTabState extends State<CalculateTab> {
                         Icon(Icons.auto_awesome_rounded, size: 15, color: BillyColors.primary),
                         SizedBox(width: 6),
                         Expanded(
-                          child: Text('고지서 사진을 찍으면 AI가 합계를 자동 입력합니다',
+                          child: Text('고지서를 올리면 AI가 종류를 판별해 합계를 자동 입력합니다',
                               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: BillyColors.primaryDark)),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: AsyncButton(
+                        label: '고지서 여러 장 한번에 (자동 분류)',
+                        icon: Icons.auto_awesome_rounded,
+                        onPressed: _readBillsAuto,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Row(children: [
+                      Expanded(child: Divider()),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Text('또는 종류별로', style: TextStyle(fontSize: 11, color: BillyColors.textHint)),
+                      ),
+                      Expanded(child: Divider()),
+                    ]),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(
@@ -200,6 +282,18 @@ class _CalculateTabState extends State<CalculateTab> {
                         ),
                       ],
                     ),
+                    if (_waterPhoto != null || _elecPhoto != null) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          if (_waterPhoto != null)
+                            Expanded(child: _billThumb(context, '수도 고지서', _waterPhoto!, BillyColors.water)),
+                          if (_waterPhoto != null && _elecPhoto != null) const SizedBox(width: 10),
+                          if (_elecPhoto != null)
+                            Expanded(child: _billThumb(context, '전기 고지서', _elecPhoto!, BillyColors.electricity)),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -289,6 +383,51 @@ class _CalculateTabState extends State<CalculateTab> {
             ? Column(children: [a, const SizedBox(height: 12), b])
             : Row(children: [Expanded(child: a), const SizedBox(width: 12), Expanded(child: b)]),
       );
+
+  /// 업로드한 고지서 사진 썸네일(탭하면 확대). 인식 숫자와 비교해 직접 수정 가능.
+  Widget _billThumb(BuildContext context, String label, ({String data, String media}) photo, Color color) {
+    final bytes = base64Decode(photo.data);
+    return GestureDetector(
+      onTap: () => showDialog(
+        context: context,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.black,
+          insetPadding: const EdgeInsets.all(16),
+          child: InteractiveViewer(child: Image.memory(bytes)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.image_outlined, size: 12, color: color),
+            const SizedBox(width: 4),
+            Text(label, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: color)),
+          ]),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Stack(children: [
+              Image.memory(bytes, height: 64, width: double.infinity, fit: BoxFit.cover),
+              const Positioned(
+                right: 4,
+                bottom: 4,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                      color: Colors.black54, borderRadius: BorderRadius.all(Radius.circular(6))),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    child: Text('탭하면 확대',
+                        style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _LabeledField extends StatelessWidget {

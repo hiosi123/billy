@@ -146,6 +146,15 @@ class ApiService {
         await _post('/bills/read-bill', {'image': image, 'type': type, 'mediaType': mediaType}));
   }
 
+  /// 고지서 사진(base64) → 수도/전기 자동 판별 + 항목 추출. 응답에 'type'(water|electricity|null) 포함.
+  Future<Map<String, dynamic>> readBillAuto({
+    required String image,
+    String mediaType = 'image/jpeg',
+  }) async {
+    return Map<String, dynamic>.from(
+        await _post('/bills/read-bill-auto', {'image': image, 'mediaType': mediaType}));
+  }
+
   /// 관리비 계산. 응답은 roomNumber → 결과 맵.
   Future<List<CalcResult>> calculateBill(Map<String, dynamic> req) async {
     final res = await _post('/bills/calculate', req) as Map<String, dynamic>;
