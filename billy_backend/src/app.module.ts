@@ -11,6 +11,7 @@ import { RoomsModule } from './rooms/rooms.module';
 import { BuildingFeesModule } from './building-fees/building-fees.module';
 import { BillHistoriesModule } from './bill-histories/bill-histories.module';
 import { CalcInputsModule } from './calc-inputs/calc-inputs.module';
+import { UploadModule } from './upload/upload.module';
 import { BillsModule } from './bills/bills.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { BillsModule } from './bills/bills.module';
     // ⚠️ 'bills/histories', 'bills/calc-inputs' 가 'bills/:id' 보다 먼저 매칭되도록 BillsModule 앞에 둔다.
     BillHistoriesModule,
     CalcInputsModule,
+    UploadModule,
     BillsModule,
   ],
 })

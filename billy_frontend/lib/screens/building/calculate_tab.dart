@@ -3,12 +3,24 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
 import '../../providers/app_provider.dart';
+import '../../services/api_service.dart';
 import '../../models/calc_result.dart';
 import '../../utils/format.dart';
 import '../../utils/image_pick.dart';
 import '../../widgets/common.dart';
 import '../../services/file_saver.dart';
 import 'month_selector.dart';
+
+/// 고지서 사진 한 장. 새로 촬영하면 base64(아직 미업로드), 저장/복원되면 S3 url 을 가진다.
+class BillPhoto {
+  final String? base64; // 방금 촬영(S3 미업로드)
+  final String? url; // S3 업로드/저장된 공개 URL
+  final String media;
+  const BillPhoto({this.base64, this.url, this.media = 'image/jpeg'});
+
+  /// DB 에 저장돼 있던 문자열 복원(http면 URL, 아니면 레거시 base64).
+  factory BillPhoto.fromStored(String s) => s.startsWith('http') ? BillPhoto(url: s) : BillPhoto(base64: s);
+}
 
 class CalculateTab extends StatefulWidget {
   const CalculateTab({super.key});
@@ -27,9 +39,9 @@ class _CalculateTabState extends State<CalculateTab> {
 
   List<CalcResult> _results = [];
 
-  // 업로드한 고지서 사진 보존(화면 확인용). 전기는 보통 2장(청구서+내역서).
-  ({String data, String media})? _waterPhoto;
-  final List<({String data, String media})> _elecPhotos = [];
+  // 업로드한 고지서 사진. 저장 시 S3에 올리고 URL을 보관. 전기는 보통 2장(청구서+내역서).
+  BillPhoto? _waterPhoto;
+  final List<BillPhoto> _elecPhotos = [];
 
   @override
   void initState() {
@@ -74,23 +86,48 @@ class _CalculateTabState extends State<CalculateTab> {
         _waterSupply.text = _moneyOrEmpty(r['waterSupplyCost']);
         _waterSewer.text = _moneyOrEmpty(r['waterSewerCost']);
         final wp = r['waterPhoto'];
-        _waterPhoto = (wp is String && wp.isNotEmpty) ? (data: wp, media: 'image/jpeg') : null;
+        _waterPhoto = (wp is String && wp.isNotEmpty) ? BillPhoto.fromStored(wp) : null;
         _elecPhotos
           ..clear()
           ..addAll(((r['elecPhotos'] as List?) ?? [])
               .whereType<String>()
-              .map((d) => (data: d, media: 'image/jpeg')));
+              .where((s) => s.isNotEmpty)
+              .map(BillPhoto.fromStored));
       });
     } catch (_) {
       // 조회 실패 시 조용히 무시(입력은 유지)
     }
   }
 
-  /// 현재 입력값 + 고지서 사진을 이 건물·월에 저장.
+  /// 미업로드(base64) 사진은 S3에 올려 URL을 얻고, 이미 URL이면 그대로 사용.
+  Future<String?> _ensureUploaded(ApiService api, BillPhoto? photo) async {
+    if (photo == null) return null;
+    if (photo.url != null) return photo.url;
+    if (photo.base64 == null) return null;
+    return api.uploadImage('bill', photo.media, base64Decode(photo.base64!));
+  }
+
+  /// 현재 입력값 + 고지서 사진을 이 건물·월에 저장. 사진은 S3 업로드 후 URL을 DB에 저장.
   Future<void> _saveInput() async {
     final p = context.read<AppProvider>();
+    final api = p.api;
     try {
-      await p.api.saveCalcInput({
+      final waterUrl = await _ensureUploaded(api, _waterPhoto);
+      final elecUrls = <String>[];
+      for (final photo in _elecPhotos) {
+        final u = await _ensureUploaded(api, photo);
+        if (u != null) elecUrls.add(u);
+      }
+      // 화면 상태도 URL로 갱신(재저장 시 재업로드 방지)
+      if (mounted) {
+        setState(() {
+          if (waterUrl != null) _waterPhoto = BillPhoto(url: waterUrl);
+          _elecPhotos
+            ..clear()
+            ..addAll(elecUrls.map((u) => BillPhoto(url: u)));
+        });
+      }
+      await api.saveCalcInput({
         'buildingId': p.selectedBuilding!.buildingId,
         'chargeMonth': p.chargeMonth,
         'electricityTotalCost': _n(_elecCost),
@@ -99,8 +136,8 @@ class _CalculateTabState extends State<CalculateTab> {
         'waterTotalUsage': _n(_waterUsage),
         'waterSupplyCost': _n(_waterSupply),
         'waterSewerCost': _n(_waterSewer),
-        'waterPhoto': _waterPhoto?.data,
-        'elecPhotos': _elecPhotos.map((e) => e.data).toList(),
+        'waterPhoto': waterUrl,
+        'elecPhotos': elecUrls,
       });
       if (mounted) showSnack(context, '입력값·사진을 저장했습니다 (이 달을 다시 열면 복원됩니다)');
     } catch (e) {
@@ -147,7 +184,7 @@ class _CalculateTabState extends State<CalculateTab> {
       final r = await api.readBill(image: picked.data, type: 'water', mediaType: picked.media);
       if (!mounted) return;
       final filled = _applyWater(r);
-      setState(() => _waterPhoto = picked);
+      setState(() => _waterPhoto = BillPhoto(base64: picked.data, media: picked.media));
       showSnack(context, filled > 0 ? '수도 고지서에서 $filled개 항목 입력 (사진과 비교해 확인)' : '수도 고지서에서 값을 인식하지 못했습니다',
           error: filled == 0);
     } catch (e) {
@@ -166,7 +203,7 @@ class _CalculateTabState extends State<CalculateTab> {
       final filled = _applyElec(r);
       setState(() => _elecPhotos
         ..clear()
-        ..addAll(images));
+        ..addAll(images.map((e) => BillPhoto(base64: e.data, media: e.media))));
       showSnack(context, filled > 0 ? '전기 고지서 ${images.length}장에서 $filled개 항목 입력 (사진과 비교해 확인)' : '전기 고지서에서 값을 인식하지 못했습니다',
           error: filled == 0);
     } catch (e) {
@@ -188,7 +225,7 @@ class _CalculateTabState extends State<CalculateTab> {
         final type = r['type'];
         if (type == 'water') {
           _applyWater(r);
-          _waterPhoto = img;
+          _waterPhoto = BillPhoto(base64: img.data, media: img.media);
           water++;
         } else if (type == 'electricity') {
           elecImgs.add(img); // 전기는 모아서 합산 추출
@@ -206,7 +243,7 @@ class _CalculateTabState extends State<CalculateTab> {
         elecFilled = _applyElec(er);
         _elecPhotos
           ..clear()
-          ..addAll(elecImgs);
+          ..addAll(elecImgs.map((e) => BillPhoto(base64: e.data, media: e.media)));
       } catch (_) {}
     }
     if (!mounted) return;
@@ -490,9 +527,25 @@ class _CalculateTabState extends State<CalculateTab> {
             : Row(children: [Expanded(child: a), const SizedBox(width: 12), Expanded(child: b)]),
       );
 
-  /// 업로드한 고지서 사진 썸네일(탭하면 확대). 인식 숫자와 비교해 직접 수정 가능.
-  Widget _billThumb(BuildContext context, String label, ({String data, String media}) photo, Color color) {
-    final bytes = base64Decode(photo.data);
+  /// 업로드한 고지서 사진 썸네일(탭하면 확대). S3 URL 또는 방금 촬영한 base64 모두 표시.
+  Widget _billThumb(BuildContext context, String label, BillPhoto photo, Color color) {
+    Widget img({double? w, double? h}) {
+      if (photo.url != null) {
+        return Image.network(photo.url!,
+            width: w,
+            height: h,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+                  width: w,
+                  height: h ?? 64,
+                  color: BillyColors.surfaceAlt,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.broken_image_outlined, size: 18, color: BillyColors.textHint),
+                ));
+      }
+      return Image.memory(base64Decode(photo.base64!), width: w, height: h, fit: BoxFit.cover);
+    }
+
     return SizedBox(
       width: 104,
       child: GestureDetector(
@@ -501,7 +554,7 @@ class _CalculateTabState extends State<CalculateTab> {
           builder: (_) => Dialog(
             backgroundColor: Colors.black,
             insetPadding: const EdgeInsets.all(16),
-            child: InteractiveViewer(child: Image.memory(bytes)),
+            child: InteractiveViewer(child: img()),
           ),
         ),
         child: Column(
@@ -520,21 +573,21 @@ class _CalculateTabState extends State<CalculateTab> {
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: Stack(children: [
-                Image.memory(bytes, height: 64, width: 104, fit: BoxFit.cover),
-              const Positioned(
-                right: 4,
-                bottom: 4,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                      color: Colors.black54, borderRadius: BorderRadius.all(Radius.circular(6))),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    child: Text('탭하면 확대',
-                        style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w600)),
+                img(w: 104, h: 64),
+                const Positioned(
+                  right: 4,
+                  bottom: 4,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                        color: Colors.black54, borderRadius: BorderRadius.all(Radius.circular(6))),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      child: Text('탭하면 확대',
+                          style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w600)),
+                    ),
                   ),
                 ),
-              ),
-            ]),
+              ]),
             ),
           ],
         ),

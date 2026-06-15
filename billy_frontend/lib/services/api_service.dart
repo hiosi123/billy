@@ -215,4 +215,20 @@ class ApiService {
 
   /// 계산 입력값 저장(건물·월 upsert).
   Future<void> saveCalcInput(Map<String, dynamic> data) async => await _post('/bills/calc-inputs', data);
+
+  // ── S3 사진 업로드 (presigned URL 방식) ─────────────────────────────────
+  Future<Map<String, String>> _presignedUrl(String folder, String contentType) async {
+    final data = await _post('/upload/presigned-url', {'folder': folder, 'contentType': contentType}) as Map;
+    return {'uploadUrl': data['uploadUrl'] as String, 'imageUrl': data['imageUrl'] as String};
+  }
+
+  /// 이미지 바이트를 S3에 직접 PUT하고 공개 imageUrl 을 반환.
+  Future<String> uploadImage(String folder, String contentType, List<int> bytes) async {
+    final urls = await _presignedUrl(folder, contentType);
+    final res = await http.put(Uri.parse(urls['uploadUrl']!), headers: {'Content-Type': contentType}, body: bytes);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception('사진 업로드 실패 (${res.statusCode})');
+    }
+    return urls['imageUrl']!;
+  }
 }
