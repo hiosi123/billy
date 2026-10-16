@@ -40,6 +40,21 @@ function prevMonth(yyyymm: string): string {
   return `${y}${m}`;
 }
 
+/** bills.electricity_bill / water_bill 은 numeric(10,2) — 절댓값 1억 미만만 들어간다. */
+const MAX_AMOUNT = 1e8;
+/**
+ * 호실 전기 사용량 합이 건물 전체(한전 고지서) 사용량의 이 배수를 넘으면 검침 오류로 본다.
+ * 한전 검침일과 호실 검침일이 달라 조금 넘는 달은 있을 수 있어 여유를 둔다.
+ */
+const USAGE_SUM_TOLERANCE = 1.3;
+/** 오류 메시지에 짚어 주는 호실 수. */
+const MAX_SUSPECTS = 5;
+
+const kwh = (n: number) => `${n.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}kWh`;
+const won = (n: number) => `${Math.round(n).toLocaleString('ko-KR')}원`;
+/** 호실 표시 이름 — 같은 호수에 계량기가 여럿이면 계량기 명칭(천리안안과-1)으로 구분된다. */
+const roomLabel = (room: Room) => `${room.roomNumber}호 ${room.measureMachine || room.roomName}`;
+
 @Injectable()
 export class BillsService {
   constructor(
@@ -232,8 +247,15 @@ export class BillsService {
    * 관리비 계산: 호실별 전기 공용요금 안분, 세금/기금, 수도 안분 후
    * bills.electricity_bill / water_bill 갱신. (Go: CalculateBill)
    * 반환: roomNumber → 계산 결과 맵.
+   *
+   * 검침값이 틀리면(소수점 빠짐 등) 사용량이 수십~수천 배로 부풀어 금액이 numeric(10,2) 를 넘고
+   * DB 가 500 을 냈다(2026-10, 9월분). 계산 전에 사용량을, 저장 전에 금액을 확인해 400 으로 알리고,
+   * 저장은 전부 확인한 뒤 한 트랜잭션으로 한다(중간에 실패해 일부 호실만 바뀌지 않게).
    */
   async calculate(req: CalculateBillDto): Promise<Record<number, BillCalc>> {
+    if (!(req.ElectricityTotalUsage > 0)) {
+      throw new BadRequestException('전체 전기 사용량을 입력해주세요');
+    }
     const costPerKWh = req.ElectricityTotalCost / req.ElectricityTotalUsage;
 
     const bills = await this.getByMonth(req.Month, req.BuildingId);
@@ -241,15 +263,19 @@ export class BillsService {
 
     const roomMap = new Map<number, Room>(); // roomId -> Room
     const roomNoSpace = new Map<number, number>(); // roomNumber -> roomSpace
+    const roomNoName = new Map<number, string>(); // roomNumber -> roomName (오류 메시지용)
     let totalSpace = 0;
 
     for (const room of rooms) {
       roomMap.set(room.roomId, room);
       if (!roomNoSpace.has(room.roomNumber)) {
         roomNoSpace.set(room.roomNumber, room.roomSpace);
+        roomNoName.set(room.roomNumber, room.roomName);
         totalSpace += room.roomSpace;
       }
     }
+
+    await this.assertElectricityUsage(req, bills, roomMap);
 
     const fBillsMap = new Map<number, BillCalc>(); // roomNumber -> BillCalc
     const billMap = new Map<number, Bill>(); // roomNumber -> 대표 bill (electricity/water_bill 기록용)
@@ -298,18 +324,71 @@ export class BillsService {
       fBill.calculateTotal(2500); // TV 수신료 등 고정 2500 (Go 동일)
 
       fBill.roundMoney();
+    }
 
-      const separateBill = billMap.get(roomNo);
-      if (separateBill) {
-        await this.billsRepo.update(
-          { billId: separateBill.billId },
-          { electricityBill: fBill.electricityCostTotal, waterBill: fBill.waterCostTotal },
+    // 사용량 검사를 지나도 금액이 칸을 넘으면(±Infinity 포함) DB 가 500 을 내니 먼저 막는다.
+    // NaN(수도 사용량 합 0)은 예전처럼 그대로 둔다 — 비교가 false 라 걸리지 않는다.
+    for (const [roomNo, fBill] of fBillsMap) {
+      const name = `${roomNo}호 ${roomNoName.get(roomNo) ?? ''}`.trim();
+      if (Math.abs(fBill.electricityCostTotal) >= MAX_AMOUNT) {
+        throw new BadRequestException(
+          `${name} 전기요금이 ${won(fBill.electricityCostTotal)}으로 계산됐습니다. 검침값과 고지서 입력값을 확인해주세요.`,
+        );
+      }
+      if (Math.abs(fBill.waterCostTotal) >= MAX_AMOUNT) {
+        throw new BadRequestException(
+          `${name} 수도요금이 ${won(fBill.waterCostTotal)}으로 계산됐습니다. 검침값과 고지서 입력값을 확인해주세요.`,
         );
       }
     }
 
+    await this.billsRepo.manager.transaction(async (em) => {
+      for (const [roomNo, fBill] of fBillsMap) {
+        const separateBill = billMap.get(roomNo);
+        if (!separateBill) continue;
+        await em.update(
+          Bill,
+          { billId: separateBill.billId },
+          { electricityBill: fBill.electricityCostTotal, waterBill: fBill.waterCostTotal },
+        );
+      }
+    });
+
     const result: Record<number, BillCalc> = {};
     for (const [roomNo, fBill] of fBillsMap) result[roomNo] = fBill;
     return result;
+  }
+
+  /**
+   * 호실 전기 사용량 합이 건물 전체(한전 고지서) 사용량보다 터무니없이 크면 검침 오류다 —
+   * 그대로 계산하면 공용요금이 큰 음수가 되어 호실마다 수억 원의 ± 금액이 나온다.
+   * 지난달보다 크게 늘어난 호실(없으면 사용량이 큰 호실)을 짚어 400 으로 알린다.
+   */
+  private async assertElectricityUsage(req: CalculateBillDto, bills: Bill[], roomMap: Map<number, Room>) {
+    const counted = bills.filter((b) => roomMap.has(b.roomId));
+    const sum = counted.reduce((s, b) => s + b.electricityUsage, 0);
+    if (sum <= req.ElectricityTotalUsage * USAGE_SUM_TOLERANCE) return;
+
+    const lastUsage = new Map<number, number>();
+    for (const b of await this.getByMonth(prevMonth(req.Month), req.BuildingId)) lastUsage.set(b.roomId, b.electricityUsage);
+    const ratio = (b: Bill) => b.electricityUsage / (lastUsage.get(b.roomId) ?? 0);
+
+    const jumped = counted.filter((b) => (lastUsage.get(b.roomId) ?? 0) > 0 && ratio(b) > 2).sort((a, b) => ratio(b) - ratio(a));
+    const suspects = jumped.length > 0 ? jumped : [...counted].sort((a, b) => b.electricityUsage - a.electricityUsage).slice(0, 3);
+    const names = suspects
+      .slice(0, MAX_SUSPECTS)
+      .map((b) => {
+        const room = roomMap.get(b.roomId)!;
+        const last = lastUsage.get(b.roomId);
+        return `${roomLabel(room)} ${kwh(b.electricityUsage)}${jumped.length > 0 ? `(지난달 ${kwh(last!)})` : ''}`;
+      })
+      .join(', ');
+    const more = suspects.length > MAX_SUSPECTS ? ` 외 ${suspects.length - MAX_SUSPECTS}곳` : '';
+
+    throw new BadRequestException(
+      `호실 전기 사용량 합계(${kwh(sum)})가 건물 전체 사용량(${kwh(req.ElectricityTotalUsage)})보다 훨씬 큽니다. ` +
+        `${jumped.length > 0 ? '지난달보다 크게 늘어난 호실' : '사용량이 큰 호실'}: ${names}${more}. ` +
+        '검침 탭에서 지침값(소수점 빠짐 등)을 확인해주세요.',
+    );
   }
 }

@@ -9,6 +9,7 @@ import '../../models/bill_photo.dart';
 import '../../models/room.dart';
 import '../../utils/format.dart';
 import '../../utils/image_pick.dart';
+import '../../utils/meter_check.dart';
 import '../../widgets/common.dart';
 import 'month_selector.dart';
 
@@ -147,12 +148,70 @@ class _MeasureTabState extends State<MeasureTab> {
     });
   }
 
+  /// 저장하려는 호실 중 소수점이 빠진 것 같은 지침(지난달 지침의 10배 이상).
+  List<_DecimalSuspect> _decimalSuspects(Iterable<Room> rooms) {
+    final out = <_DecimalSuspect>[];
+    for (final r in rooms) {
+      final last = _lastByRoom[r.roomId];
+      final name = r.measureMachine.isNotEmpty ? r.measureMachine : r.roomName;
+      for (final (kind, ctl, lastReading) in [
+        ('수도', _water[r.roomId], last?.waterMeasure),
+        ('전기', _elec[r.roomId], last?.electricityMeasure),
+      ]) {
+        final reading = _parse(ctl);
+        final fix = suggestDecimalFix(reading, lastReading);
+        if (ctl != null && fix != null) out.add(_DecimalSuspect('$name $kind', ctl, reading!, fix));
+      }
+    }
+    return out;
+  }
+
+  /// 소수점이 빠진 것 같은 지침이 있으면 고쳐서/그대로 저장할지 묻는다. 취소하면 false.
+  /// (9월분이 소수점 없이 저장돼 계산이 막혔다 — 화면 경고만으로는 못 막았다)
+  Future<bool> _confirmDecimals(List<_DecimalSuspect> suspects) async {
+    if (suspects.isEmpty) return true;
+    final choice = await showDialog<_DecimalChoice>(
+      context: context,
+      useRootNavigator: true,
+      builder: (ctx) => AlertDialog(
+        scrollable: true,
+        title: const Text('소수점이 빠졌나요?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('지난달 지침보다 10배 넘게 큰 값이 있습니다.'),
+            const SizedBox(height: 8),
+            for (final s in suspects)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('${s.label}  ${num2(s.reading)} → ${num2(s.fix)}',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          TextButton(onPressed: () => Navigator.pop(ctx, _DecimalChoice.asIs), child: const Text('그대로 저장')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, _DecimalChoice.fix), child: const Text('고쳐서 저장')),
+        ],
+      ),
+    );
+    if (choice == _DecimalChoice.fix) {
+      for (final s in suspects) {
+        s.controller.text = plainReading(s.fix);
+      }
+    }
+    return choice != null;
+  }
+
   /// 단일 호실 저장 — 저장 후 그 호실만 동기화하므로 다른 입력칸은 그대로 유지된다.
   Future<void> _save(Room room) async {
     if (_parse(_water[room.roomId]) == null && _parse(_elec[room.roomId]) == null) {
       showSnack(context, '검침값을 입력해주세요', error: true);
       return;
     }
+    if (!await _confirmDecimals(_decimalSuspects([room])) || !mounted) return;
     try {
       await _persist(room);
       await _reloadMaps();
@@ -176,6 +235,7 @@ class _MeasureTabState extends State<MeasureTab> {
       showSnack(context, '입력된 검침값이 없습니다', error: true);
       return;
     }
+    if (!await _confirmDecimals(_decimalSuspects(targets)) || !mounted) return;
     var ok = 0;
     final failed = <String>[];
     for (final r in targets) {
@@ -368,6 +428,7 @@ class _MeasureCard extends StatelessWidget {
                 label: '수도 지침',
                 controller: waterCtl,
                 color: BillyColors.water,
+                fixedUsage: room.strictWater,
                 lastMeasure: lastInfo?.waterMeasure,
                 lastUsage: lastInfo?.waterUsage,
                 last2Usage: last2Info?.waterUsage,
@@ -379,6 +440,9 @@ class _MeasureCard extends StatelessWidget {
                 label: '전기 지침',
                 controller: elecCtl,
                 color: BillyColors.electricity,
+                // 서버는 전기 사용량에 계량기 배수를 곱해 저장한다(지난달 사용량도 곱한 값)
+                multiply: room.measureMultiply > 0 ? room.measureMultiply : 1,
+                fixedUsage: room.strictElectricity,
                 lastMeasure: lastInfo?.electricityMeasure,
                 lastUsage: lastInfo?.electricityUsage,
                 last2Usage: last2Info?.electricityUsage,
@@ -452,6 +516,8 @@ class _MeasureField extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final Color color;
+  final double multiply; // 계량기 배수(사용량 = 지침 차 × 배수)
+  final double fixedUsage; // 고정 사용량(호실 설정, 0 이면 없음) — 있으면 서버가 지침과 상관없이 이 값을 쓴다
   final double? lastMeasure; // 지난달 지침
   final double? lastUsage; // 지난달 사용량
   final double? last2Usage; // 지지난달 사용량
@@ -462,6 +528,8 @@ class _MeasureField extends StatelessWidget {
     required this.label,
     required this.controller,
     required this.color,
+    this.multiply = 1,
+    this.fixedUsage = 0,
     this.lastMeasure,
     this.lastUsage,
     this.last2Usage,
@@ -497,10 +565,15 @@ class _MeasureField extends StatelessWidget {
           valueListenable: controller,
           builder: (context, value, _) {
             final reading = double.tryParse(value.text.replaceAll(',', '').trim());
-            final thisUsage = (reading != null && lastMeasure != null) ? reading - lastMeasure! : null;
+            final thisUsage = (reading == null || lastMeasure == null)
+                ? null
+                : fixedUsage > 0
+                    ? fixedUsage
+                    : (reading - lastMeasure!) * multiply;
             final lastDelta = (lastUsage != null && last2Usage != null) ? lastUsage! - last2Usage! : null;
             final thisDelta = (thisUsage != null && lastUsage != null) ? thisUsage - lastUsage! : null;
             final warn = thisDelta != null && lastDelta != null && thisDelta.abs() > lastDelta.abs();
+            final fix = suggestDecimalFix(reading, lastMeasure);
 
             final lines = <Widget>[];
             if (lastUsage != null && lastUsage! > 0) lines.add(_metric('지난달 사용량', num2(lastUsage)));
@@ -523,7 +596,22 @@ class _MeasureField extends StatelessWidget {
                 children: [
                   ...lines,
                   if (thisUsage != null && thisUsage < 0) _warnBox('지침이 지난달보다 작습니다. 입력을 확인하세요'),
-                  if (warn) _warnBox('이번달 변동폭이 지난달보다 큽니다. 확인 필요'),
+                  if (fix != null) ...[
+                    _warnBox('지난달 지침보다 10배 넘게 큽니다. 소수점이 빠졌나요?'),
+                    TextButton.icon(
+                      onPressed: () => controller.text = plainReading(fix),
+                      icon: const Icon(Icons.auto_fix_high_rounded, size: 14),
+                      label: Text('${num2(fix)} 로 고치기'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: BillyColors.error,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(0, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ] else if (warn)
+                    _warnBox('이번달 변동폭이 지난달보다 큽니다. 확인 필요'),
                   if (photo != null) ...[
                     const SizedBox(height: 6),
                     GestureDetector(
@@ -594,6 +682,17 @@ class _MeasureField extends StatelessWidget {
       ),
     );
   }
+}
+
+enum _DecimalChoice { fix, asIs }
+
+/// 소수점이 빠진 것 같은 지침 하나 — 고칠 입력칸과 제안값.
+class _DecimalSuspect {
+  final String label; // '천리안안과-1 전기'
+  final TextEditingController controller;
+  final double reading;
+  final double fix;
+  const _DecimalSuspect(this.label, this.controller, this.reading, this.fix);
 }
 
 /// 계량기 사진 촬영 버튼(처리 중 스피너 표시).

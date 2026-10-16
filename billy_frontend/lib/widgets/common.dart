@@ -6,6 +6,9 @@ void showSnack(BuildContext context, String msg, {bool error = false}) {
     SnackBar(
       content: Text(msg),
       backgroundColor: error ? BillyColors.error : BillyColors.textPrimary,
+      // 오류는 어느 호실을 고칠지까지 담겨 길다 — 읽을 시간을 주고 직접 닫을 수 있게
+      duration: Duration(seconds: error ? 8 : 4),
+      showCloseIcon: error,
     ),
   );
 }
