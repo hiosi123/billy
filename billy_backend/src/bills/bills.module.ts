@@ -13,6 +13,6 @@ import { CalcInputsModule } from '../calc-inputs/calc-inputs.module';
   imports: [TypeOrmModule.forFeature([Bill]), RoomsModule, BuildingFeesModule, CalcInputsModule],
   providers: [BillsService, ExcelService, MeterOcrService],
   controllers: [BillsController],
-  exports: [BillsService, TypeOrmModule],
+  exports: [BillsService, ExcelService, TypeOrmModule],
 })
 export class BillsModule {}

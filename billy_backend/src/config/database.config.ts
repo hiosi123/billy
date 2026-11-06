@@ -8,8 +8,19 @@ import { Bill } from '../bills/bill.entity';
 import { BillHistory } from '../bill-histories/bill-history.entity';
 import { BuildingFee } from '../building-fees/building-fee.entity';
 import { CalcInput } from '../calc-inputs/calc-input.entity';
+import { Unit } from '../billing/entities/unit.entity';
+import { UnitMeter } from '../billing/entities/unit-meter.entity';
+import { ChargePlan } from '../billing/entities/charge-plan.entity';
+import { MonthInput } from '../billing/entities/month-input.entity';
+import { Statement } from '../billing/entities/statement.entity';
+import { BuildingSetting } from '../billing/entities/building-setting.entity';
+import { BuildingMember } from '../billing/entities/building-member.entity';
 
-const ALL_ENTITIES = [User, Building, Floor, Room, Bill, BillHistory, BuildingFee, CalcInput];
+const ALL_ENTITIES = [
+  User, Building, Floor, Room, Bill, BillHistory, BuildingFee, CalcInput,
+  // v2 (004_v2_core) — 기존 엔티티는 이 테이블들에 기대지 않는다
+  Unit, UnitMeter, ChargePlan, MonthInput, Statement, BuildingSetting, BuildingMember,
+];
 
 /**
  * PostgreSQL 연결. 스키마는 sql/schema.sql + sql/migrations 로 관리한다.

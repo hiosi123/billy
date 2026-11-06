@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -24,6 +25,9 @@ import { ReadBillDto } from './dto/read-bill.dto';
 import { ReadBillAutoDto } from './dto/read-bill-auto.dto';
 import { ReadBillElecDto } from './dto/read-bill-elec.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../access/admin.guard';
+import { AccessService } from '../access/access.service';
+import { AuthUser, CurrentUser } from '../common/current-user.decorator';
 
 @UseGuards(JwtAuthGuard)
 @Controller('bills')
@@ -32,8 +36,10 @@ export class BillsController {
     private readonly billsService: BillsService,
     private readonly excelService: ExcelService,
     private readonly meterOcrService: MeterOcrService,
+    private readonly access: AccessService,
   ) {}
 
+  @UseGuards(AdminGuard)
   @Get()
   findAll() {
     return this.billsService.findAll();
@@ -41,12 +47,17 @@ export class BillsController {
 
   // ── 정적 경로 (:id 보다 먼저) ──────────────────────────────
   @Get('conditions')
-  getByCondition(
+  async getByCondition(
+    @CurrentUser() user: AuthUser,
     @Query('month') month = '',
     @Query('RoomId') roomId = '0',
     @Query('FloorId') floorId = '0',
     @Query('BuildingId') buildingId = '0',
   ) {
+    // 건물을 정하지 않은 조회(여러 건물에 걸침)는 관리자만
+    const bid = parseInt(buildingId, 10) || 0;
+    if (bid) await this.access.assertBuilding(user, bid);
+    else if (!this.access.isAdmin(user)) throw new BadRequestException('건물을 지정해주세요');
     return this.billsService.getByCondition(
       month,
       parseInt(roomId, 10) || 0,
@@ -56,12 +67,15 @@ export class BillsController {
   }
 
   @Post('measurements')
-  insertMeasure(@Body() usage: UsageDto) {
+  async insertMeasure(@Body() usage: UsageDto, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, usage.BuildingId);
+    await this.billsService.assertRoomInBuilding(usage.RoomId, usage.BuildingId);
     return this.billsService.insertMeasure(usage);
   }
 
   @Post('calculate')
-  calculate(@Body() req: CalculateBillDto) {
+  async calculate(@Body() req: CalculateBillDto, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, req.BuildingId);
     return this.billsService.calculate(req);
   }
 
@@ -85,12 +99,18 @@ export class BillsController {
 
   /** 전기 고지서 여러 장(청구서+내역서) → 전기요금계 + 당월 사용량. */
   @Post('read-bill-elec')
-  readBillElec(@Body() dto: ReadBillElecDto) {
+  async readBillElec(@Body() dto: ReadBillElecDto, @CurrentUser() user: AuthUser) {
+    // 같은 건물의 지난 고지서 사진을 예시로 넣으므로 남의 건물 번호는 막는다
+    if (dto.buildingId) await this.access.assertBuilding(user, dto.buildingId);
     return this.meterOcrService.readBillElec(dto);
   }
 
   @Post('excel')
-  async makeExcel(@Body() bills: ExcelBillDto[], @Res() res: Response) {
+  async makeExcel(@Body() bills: ExcelBillDto[], @Res() res: Response, @CurrentUser() user: AuthUser) {
+    if (!Array.isArray(bills) || bills.length === 0) throw new BadRequestException('생성할 청구 데이터가 없습니다');
+    const ids = new Set(bills.map((b) => Number(b?.BuildingId)));
+    if (ids.size !== 1) throw new BadRequestException('한 건물의 명세서만 만들 수 있습니다');
+    await this.access.assertBuilding(user, [...ids][0]);
     const { buffer, filename } = await this.excelService.makeBillExcel(bills);
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -101,22 +121,27 @@ export class BillsController {
 
   // ── 동적 경로 ───────────────────────────────────────────
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    await this.access.assertRow(user, 'bills', 'bill_id', id);
     return this.billsService.findOne(id);
   }
 
   @Post()
-  create(@Body() dto: CreateBillDto) {
+  async create(@Body() dto: CreateBillDto, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, dto.buildingId);
     return this.billsService.create(dto);
   }
 
   @Put(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateBillDto) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateBillDto, @CurrentUser() user: AuthUser) {
+    await this.access.assertRow(user, 'bills', 'bill_id', id);
+    await this.access.assertBuilding(user, dto.buildingId);
     return this.billsService.update(id, dto);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    await this.access.assertRow(user, 'bills', 'bill_id', id);
     return this.billsService.remove(id);
   }
 }

@@ -2,34 +2,45 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, UseGuard
 import { BuildingFeesService } from './building-fees.service';
 import { UpsertBuildingFeeDto } from './dto/upsert-building-fee.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../access/admin.guard';
+import { AccessService } from '../access/access.service';
+import { AuthUser, CurrentUser } from '../common/current-user.decorator';
 
 @UseGuards(JwtAuthGuard)
 @Controller('building-fees')
 export class BuildingFeesController {
-  constructor(private readonly service: BuildingFeesService) {}
+  constructor(
+    private readonly service: BuildingFeesService,
+    private readonly access: AccessService,
+  ) {}
 
+  @UseGuards(AdminGuard)
   @Get()
   findAll() {
     return this.service.findAll();
   }
 
   @Get('buildings/:buildingId')
-  findByBuildingId(@Param('buildingId', ParseIntPipe) buildingId: number) {
+  async findByBuildingId(@Param('buildingId', ParseIntPipe) buildingId: number, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, buildingId);
     return this.service.findByBuildingId(buildingId);
   }
 
   @Post()
-  create(@Body() dto: UpsertBuildingFeeDto) {
+  async create(@Body() dto: UpsertBuildingFeeDto, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, dto.buildingId);
     return this.service.upsert(dto);
   }
 
   @Put()
-  update(@Body() dto: UpsertBuildingFeeDto) {
+  async update(@Body() dto: UpsertBuildingFeeDto, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, dto.buildingId);
     return this.service.upsert(dto);
   }
 
   @Delete('buildings/:buildingId')
-  remove(@Param('buildingId', ParseIntPipe) buildingId: number) {
+  async remove(@Param('buildingId', ParseIntPipe) buildingId: number, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, buildingId);
     return this.service.remove(buildingId);
   }
 }

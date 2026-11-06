@@ -68,6 +68,13 @@ export class BillsService {
     return this.billsRepo.find();
   }
 
+  /** 검침 저장 요청의 계량기가 그 건물 것인지(남의 건물 계량기에 이 건물 번호로 쓰지 못하게). */
+  async assertRoomInBuilding(roomId: number, buildingId: number): Promise<void> {
+    const rows = await this.billsRepo.query('SELECT building_id FROM rooms WHERE room_id = $1', [roomId]);
+    if (rows.length === 0) throw new NotFoundException('계량기를 찾을 수 없습니다');
+    if (Number(rows[0].building_id) !== buildingId) throw new BadRequestException('계량기와 건물이 맞지 않습니다');
+  }
+
   async findOne(id: number) {
     const bill = await this.billsRepo.findOne({ where: { billId: id } });
     if (!bill) throw new NotFoundException('청구를 찾을 수 없습니다');
