@@ -93,10 +93,11 @@ export class BillCalc {
   }
 }
 
-/** 정수부 자릿수 기준 다음 10의 거듭제곱. (Go: getNextPowerOf10) */
+/** 정수부 자릿수 기준 다음 10의 거듭제곱. (Go: getNextPowerOf10) — 0~1 사이는 10. */
 export function getNextPowerOf10(n: number): number {
   if (n <= 0) return 1;
   const intPart = Math.floor(n);
+  if (intPart < 1) return 10;
   const digits = Math.floor(Math.log10(intPart)) + 1;
   return Math.pow(10, digits);
 }
@@ -104,16 +105,16 @@ export function getNextPowerOf10(n: number): number {
 /**
  * 계량기 사용량 차이. 음수면(계량기 한 바퀴 돌아간 경우) 10의 거듭제곱을
  * 롤오버 지점으로 보정한다. multi 는 계량기 배수. (Go: calculateDifference)
+ *
+ * 한 바퀴는 배수를 곱하기 **전** 지침으로 계산한 뒤 곱한다 — 예전엔 곱한 값으로 롤오버 지점을 잡아
+ * ×25 계량기가 9990→5 일 때 375 가 아니라 750,375kWh 가 됐다(2026-11 수정).
+ * 지침이 늘어난 보통의 경우는 예전과 똑같이(곱한 뒤 뺀다) 계산한다 — 저장된 사용량과 끝자리까지 같게.
  */
 export function calculateDifference(a: number, b: number, multi: number): number {
-  a = a * multi;
-  b = b * multi;
-
-  const diff = b - a;
+  const diff = b * multi - a * multi;
   if (diff < 0) {
-    const larger = b > a ? b : a;
-    const rolloverPoint = getNextPowerOf10(larger);
-    return rolloverPoint - a + b;
+    const rolloverPoint = getNextPowerOf10(a);
+    return (rolloverPoint - a + b) * multi;
   }
   return diff;
 }

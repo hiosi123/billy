@@ -22,6 +22,7 @@ class BillyColors {
   static const success = Color(0xFF16A34A);
   static const warning = Color(0xFFD97706);
   static const error = Color(0xFFDC2626);
+  static const errorSoft = Color(0xFFFEF2F2); // 경고·오류 상자 배경
 
   // 배경 / 표면
   static const background = Color(0xFFF4F6FB); // 쿨 그레이

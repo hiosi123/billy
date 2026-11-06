@@ -33,6 +33,6 @@ import { BillsModule } from './bills/bills.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(LoggerMiddleware).forRoutes('*');
+    consumer.apply(LoggerMiddleware).forRoutes('{*path}'); // '*' 는 Express 5 에서 경고(LegacyRouteConverter)
   }
 }

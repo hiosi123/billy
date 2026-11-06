@@ -51,6 +51,7 @@ const USAGE_SUM_TOLERANCE = 1.3;
 const MAX_SUSPECTS = 5;
 
 const kwh = (n: number) => `${n.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}kWh`;
+const m3 = (n: number) => `${n.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}㎥`;
 const won = (n: number) => `${Math.round(n).toLocaleString('ko-KR')}원`;
 /** 호실 표시 이름 — 같은 호수에 계량기가 여럿이면 계량기 명칭(천리안안과-1)으로 구분된다. */
 const roomLabel = (room: Room) => `${room.roomNumber}호 ${room.measureMachine || room.roomName}`;
@@ -275,7 +276,7 @@ export class BillsService {
       }
     }
 
-    await this.assertElectricityUsage(req, bills, roomMap);
+    await this.assertUsage(req, bills, roomMap);
 
     const fBillsMap = new Map<number, BillCalc>(); // roomNumber -> BillCalc
     const billMap = new Map<number, Bill>(); // roomNumber -> 대표 bill (electricity/water_bill 기록용)
@@ -360,35 +361,47 @@ export class BillsService {
   }
 
   /**
-   * 호실 전기 사용량 합이 건물 전체(한전 고지서) 사용량보다 터무니없이 크면 검침 오류다 —
-   * 그대로 계산하면 공용요금이 큰 음수가 되어 호실마다 수억 원의 ± 금액이 나온다.
+   * 호실 사용량 합이 고지서(건물 전체) 사용량보다 터무니없이 크면 검침 오류다.
+   * - 전기: 공용요금이 큰 음수가 되어 호실마다 수억 원의 ± 금액이 나온다(2026-10, 9월분 소수점 빠짐).
+   * - 수도: 빈칸이 0 으로 저장되면 '한 바퀴 돈 것'으로 읽힌 가짜 사용량이 다른 호실 몫을 가져간다.
    * 지난달보다 크게 늘어난 호실(없으면 사용량이 큰 호실)을 짚어 400 으로 알린다.
+   * 고지서 사용량을 안 넣은 항목(0)은 비교하지 않는다.
    */
-  private async assertElectricityUsage(req: CalculateBillDto, bills: Bill[], roomMap: Map<number, Room>) {
+  private async assertUsage(req: CalculateBillDto, bills: Bill[], roomMap: Map<number, Room>) {
     const counted = bills.filter((b) => roomMap.has(b.roomId));
-    const sum = counted.reduce((s, b) => s + b.electricityUsage, 0);
-    if (sum <= req.ElectricityTotalUsage * USAGE_SUM_TOLERANCE) return;
+    const checks = [
+      { label: '전기', fmt: kwh, usageOf: (b: Bill) => b.electricityUsage, total: req.ElectricityTotalUsage },
+      { label: '수도', fmt: m3, usageOf: (b: Bill) => b.waterUsage, total: req.WaterTotalUsage },
+    ];
+    let lastMonthBills: Bill[] | null = null;
+    for (const c of checks) {
+      if (!(c.total > 0)) continue;
+      const sum = counted.reduce((s, b) => s + c.usageOf(b), 0);
+      if (sum <= c.total * USAGE_SUM_TOLERANCE) continue;
 
-    const lastUsage = new Map<number, number>();
-    for (const b of await this.getByMonth(prevMonth(req.Month), req.BuildingId)) lastUsage.set(b.roomId, b.electricityUsage);
-    const ratio = (b: Bill) => b.electricityUsage / (lastUsage.get(b.roomId) ?? 0);
+      lastMonthBills ??= await this.getByMonth(prevMonth(req.Month), req.BuildingId);
+      const lastUsage = new Map<number, number>();
+      for (const b of lastMonthBills) lastUsage.set(b.roomId, c.usageOf(b));
+      const ratio = (b: Bill) => c.usageOf(b) / (lastUsage.get(b.roomId) ?? 0);
 
-    const jumped = counted.filter((b) => (lastUsage.get(b.roomId) ?? 0) > 0 && ratio(b) > 2).sort((a, b) => ratio(b) - ratio(a));
-    const suspects = jumped.length > 0 ? jumped : [...counted].sort((a, b) => b.electricityUsage - a.electricityUsage).slice(0, 3);
-    const names = suspects
-      .slice(0, MAX_SUSPECTS)
-      .map((b) => {
-        const room = roomMap.get(b.roomId)!;
-        const last = lastUsage.get(b.roomId);
-        return `${roomLabel(room)} ${kwh(b.electricityUsage)}${jumped.length > 0 ? `(지난달 ${kwh(last!)})` : ''}`;
-      })
-      .join(', ');
-    const more = suspects.length > MAX_SUSPECTS ? ` 외 ${suspects.length - MAX_SUSPECTS}곳` : '';
+      const jumped = counted.filter((b) => (lastUsage.get(b.roomId) ?? 0) > 0 && ratio(b) > 2).sort((a, b) => ratio(b) - ratio(a));
+      const suspects = jumped.length > 0 ? jumped : [...counted].sort((a, b) => c.usageOf(b) - c.usageOf(a)).slice(0, 3);
+      const names = suspects
+        .slice(0, MAX_SUSPECTS)
+        .map((b) => {
+          const room = roomMap.get(b.roomId)!;
+          const last = lastUsage.get(b.roomId);
+          return `${roomLabel(room)} ${c.fmt(c.usageOf(b))}${jumped.length > 0 ? `(지난달 ${c.fmt(last!)})` : ''}`;
+        })
+        .join(', ');
+      const more = suspects.length > MAX_SUSPECTS ? ` 외 ${suspects.length - MAX_SUSPECTS}곳` : '';
 
-    throw new BadRequestException(
-      `호실 전기 사용량 합계(${kwh(sum)})가 건물 전체 사용량(${kwh(req.ElectricityTotalUsage)})보다 훨씬 큽니다. ` +
-        `${jumped.length > 0 ? '지난달보다 크게 늘어난 호실' : '사용량이 큰 호실'}: ${names}${more}. ` +
-        '검침 탭에서 지침값(소수점 빠짐 등)을 확인해주세요.',
-    );
+      throw new BadRequestException(
+        `호실 ${c.label} 사용량 합계(${c.fmt(sum)})가 건물 전체 사용량(${c.fmt(c.total)})보다 훨씬 큽니다. ` +
+          `${jumped.length > 0 ? '지난달보다 크게 늘어난 호실' : '사용량이 큰 호실'}: ${names}${more}. ` +
+          '검침 탭에서 지침값(소수점 빠짐·빈칸 등)을 확인해주세요.',
+      );
+    }
   }
+
 }

@@ -21,7 +21,11 @@ class MeasureTab extends StatefulWidget {
 }
 
 class _MeasureTabState extends State<MeasureTab> {
-  bool _loading = false;
+  bool _loading = true; // 첫 프레임부터 스피너(컨트롤러가 생기기 전에 카드를 그리지 않게)
+  // 그 달을 불러오지 못함 — 이때는 카드를 숨기고 저장을 막는다. 실패한 채로 두면
+  // 이전 달 숫자가 새 달 이름으로 저장됐다(2026-11 점검에서 재현).
+  bool _loadFailed = false;
+  int _loadSeq = 0; // 늦게 도착한 이전 달 응답을 버리기 위한 순번
   Map<int, BillInfo> _byRoom = {}; // roomId -> 이번달 청구
   Map<int, BillInfo> _lastByRoom = {}; // roomId -> 지난달 청구(검침값·사용량)
   Map<int, BillInfo> _last2ByRoom = {}; // roomId -> 지지난달 청구(오차범위 비교용)
@@ -54,40 +58,72 @@ class _MeasureTabState extends State<MeasureTab> {
     super.dispose();
   }
 
+  TextEditingController _ctl(Map<int, TextEditingController> m, int roomId) =>
+      m.putIfAbsent(roomId, () => TextEditingController());
+
+  /// 그 달 검침을 불러온다. 먼저 입력을 비우고 시작한다 —
+  /// 실패하거나 응답이 늦게 와도 이전 달 숫자가 새 달 이름으로 남지 않게.
   Future<void> _load() async {
     final p = context.read<AppProvider>();
-    setState(() => _loading = true);
+    final seq = ++_loadSeq;
+    final buildingId = p.selectedBuilding!.buildingId;
+    final month = p.chargeMonth;
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+      _byRoom = {};
+      _lastByRoom = {};
+      _last2ByRoom = {};
+      _photos.clear();
+      for (final c in [..._water.values, ..._elec.values]) {
+        c.clear();
+      }
+    });
     try {
-      final buildingId = p.selectedBuilding!.buildingId;
-      final prev1 = _prevMonth(p.chargeMonth);
+      final prev1 = _prevMonth(month);
       final prev2 = _prevMonth(prev1);
       final results = await Future.wait([
-        p.api.getBillsByCondition(month: p.chargeMonth, buildingId: buildingId),
+        p.api.getBillsByCondition(month: month, buildingId: buildingId),
         p.api.getBillsByCondition(month: prev1, buildingId: buildingId),
         p.api.getBillsByCondition(month: prev2, buildingId: buildingId),
       ]);
+      if (!mounted || seq != _loadSeq) return; // 그새 달·건물이 바뀌었으면 버린다
       _byRoom = {for (final i in results[0]) i.roomId: i};
       _lastByRoom = {for (final i in results[1]) i.roomId: i};
       _last2ByRoom = {for (final i in results[2]) i.roomId: i};
-      _photos.clear();
       for (final r in p.rooms) {
         final info = _byRoom[r.roomId];
-        final wc = _water.putIfAbsent(r.roomId, () => TextEditingController());
-        wc.text = info != null && info.waterMeasure > 0 ? num2(info.waterMeasure) : '';
-        final ec = _elec.putIfAbsent(r.roomId, () => TextEditingController());
-        ec.text = info != null && info.electricityMeasure > 0 ? num2(info.electricityMeasure) : '';
+        _ctl(_water, r.roomId).text = info != null && info.waterMeasure > 0 ? num2(info.waterMeasure) : '';
+        _ctl(_elec, r.roomId).text = info != null && info.electricityMeasure > 0 ? num2(info.electricityMeasure) : '';
         // 저장돼 있던 계량기 사진(S3 URL) 복원
         if (info?.waterMeterPhoto != null) _photos['${r.roomId}-water'] = BillPhoto(url: info!.waterMeterPhoto);
         if (info?.electricityMeterPhoto != null) {
           _photos['${r.roomId}-electricity'] = BillPhoto(url: info!.electricityMeterPhoto);
         }
       }
+      setState(() => _loading = false);
     } catch (_) {
-      _byRoom = {};
-      _lastByRoom = {};
-      _last2ByRoom = {};
+      if (!mounted || seq != _loadSeq) return;
+      setState(() {
+        _loading = false;
+        _loadFailed = true;
+      });
     }
-    if (mounted) setState(() => _loading = false);
+  }
+
+  bool get _ready => !_loading && !_loadFailed;
+
+  /// 계량기 표시 이름 — 같은 호수에 계량기가 여럿이면 계량기 명칭(천리안안과-1)으로 구분한다.
+  static String _meterName(Room r) => r.measureMachine.isNotEmpty ? r.measureMachine : r.roomName;
+
+  /// 지난달 지침이 있는데 이번 달 칸이 빈 항목('수도'/'전기').
+  /// 빈칸은 0 으로 저장되고, 서버는 0 을 '계량기가 한 바퀴 돈 것'으로 읽어 가짜 사용량을 만든다.
+  List<String> _blankFields(Room r) {
+    final last = _lastByRoom[r.roomId];
+    return [
+      if (_parse(_water[r.roomId]) == null && (last?.waterMeasure ?? 0) > 0) '수도',
+      if (_parse(_elec[r.roomId]) == null && (last?.electricityMeasure ?? 0) > 0) '전기',
+    ];
   }
 
   /// 콤마가 섞여 있어도 안전하게 파싱(빈칸이면 null).
@@ -131,7 +167,7 @@ class _MeasureTabState extends State<MeasureTab> {
     return url;
   }
 
-  Future<void> _persist(Room room) async {
+  Future<void> _persist(Room room, String month) async {
     final p = context.read<AppProvider>();
     final api = p.api;
     final waterUrl = await _uploadIfNeeded(api, '${room.roomId}-water');
@@ -140,65 +176,87 @@ class _MeasureTabState extends State<MeasureTab> {
       'BuildingId': room.buildingId,
       'FloorId': room.floorId,
       'RoomId': room.roomId,
+      // 빈칸은 계량기가 없는 칸뿐이다(_blankFields 가 지난달 값이 있는 빈칸을 미리 막는다)
       'WaterMeasure': _parse(_water[room.roomId]) ?? 0,
       'ElectricityMeasure': _parse(_elec[room.roomId]) ?? 0,
-      'ChargeMonth': p.chargeMonth,
+      'ChargeMonth': month,
       'WaterMeterPhoto': waterUrl,
       'ElectricityMeterPhoto': elecUrl,
     });
   }
 
-  /// 저장하려는 호실 중 소수점이 빠진 것 같은 지침(지난달 지침의 10배 이상).
-  List<_DecimalSuspect> _decimalSuspects(Iterable<Room> rooms) {
-    final out = <_DecimalSuspect>[];
+  /// 저장 전에 확인할 지침: 소수점이 빠진 것 같은 값(지난달의 10배 이상)과 지난달보다 작은 값.
+  ({List<_DecimalSuspect> decimals, List<_Decrease> decreases}) _readingIssues(Iterable<Room> rooms) {
+    final decimals = <_DecimalSuspect>[];
+    final decreases = <_Decrease>[];
     for (final r in rooms) {
       final last = _lastByRoom[r.roomId];
-      final name = r.measureMachine.isNotEmpty ? r.measureMachine : r.roomName;
-      for (final (kind, ctl, lastReading) in [
-        ('수도', _water[r.roomId], last?.waterMeasure),
-        ('전기', _elec[r.roomId], last?.electricityMeasure),
+      final multiply = r.measureMultiply > 0 ? r.measureMultiply : 1.0;
+      for (final (kind, ctl, lastReading, multi) in [
+        ('수도', _water[r.roomId], last?.waterMeasure, 1.0),
+        ('전기', _elec[r.roomId], last?.electricityMeasure, multiply),
       ]) {
         final reading = _parse(ctl);
+        if (ctl == null || reading == null) continue;
         final fix = suggestDecimalFix(reading, lastReading);
-        if (ctl != null && fix != null) out.add(_DecimalSuspect('$name $kind', ctl, reading!, fix));
+        if (fix != null) {
+          decimals.add(_DecimalSuspect('${_meterName(r)} $kind', ctl, reading, fix));
+        } else if (lastReading != null && lastReading > 0 && reading < lastReading) {
+          decreases.add(_Decrease('${_meterName(r)} $kind', lastReading, reading, rolloverUsage(lastReading, reading, multi)));
+        }
       }
     }
-    return out;
+    return (decimals: decimals, decreases: decreases);
   }
 
-  /// 소수점이 빠진 것 같은 지침이 있으면 고쳐서/그대로 저장할지 묻는다. 취소하면 false.
-  /// (9월분이 소수점 없이 저장돼 계산이 막혔다 — 화면 경고만으로는 못 막았다)
-  Future<bool> _confirmDecimals(List<_DecimalSuspect> suspects) async {
-    if (suspects.isEmpty) return true;
+  /// 확인할 지침이 있으면 고쳐서/그대로 저장할지 묻는다. 취소하면 false.
+  /// (9월분이 소수점 없이 저장돼 계산이 막혔다 — 화면 경고만으로는 못 막았다.
+  ///  지난달보다 작은 값은 서버가 '한 바퀴 돈 것'으로 읽어 큰 사용량을 만든다.)
+  Future<bool> _confirmReadings(Iterable<Room> rooms) async {
+    final (:decimals, :decreases) = _readingIssues(rooms);
+    if (decimals.isEmpty && decreases.isEmpty) return true;
+    const bold = TextStyle(fontWeight: FontWeight.w700);
     final choice = await showDialog<_DecimalChoice>(
       context: context,
       useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         scrollable: true,
-        title: const Text('소수점이 빠졌나요?'),
+        title: Text(decreases.isEmpty ? '소수점이 빠졌나요?' : '확인이 필요한 검침값'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('지난달 지침보다 10배 넘게 큰 값이 있습니다.'),
-            const SizedBox(height: 8),
-            for (final s in suspects)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text('${s.label}  ${num2(s.reading)} → ${num2(s.fix)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-              ),
+            if (decimals.isNotEmpty) ...[
+              const Text('지난달 지침보다 10배 넘게 큰 값이 있습니다.'),
+              const SizedBox(height: 4),
+              for (final s in decimals)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('${s.label}  ${num2(s.reading)} → ${num2(s.fix)}', style: bold),
+                ),
+            ],
+            if (decimals.isNotEmpty && decreases.isNotEmpty) const SizedBox(height: 14),
+            if (decreases.isNotEmpty) ...[
+              const Text('지난달보다 작은 지침이 있습니다. 그대로 저장하면 계량기가 한 바퀴 돈 것으로 계산됩니다.'),
+              const SizedBox(height: 4),
+              for (final d in decreases)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('${d.label}  ${num2(d.last)} → ${num2(d.reading)}  (사용량 ${num2(d.usage)})', style: bold),
+                ),
+            ],
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
           TextButton(onPressed: () => Navigator.pop(ctx, _DecimalChoice.asIs), child: const Text('그대로 저장')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, _DecimalChoice.fix), child: const Text('고쳐서 저장')),
+          if (decimals.isNotEmpty)
+            FilledButton(onPressed: () => Navigator.pop(ctx, _DecimalChoice.fix), child: const Text('고쳐서 저장')),
         ],
       ),
     );
     if (choice == _DecimalChoice.fix) {
-      for (final s in suspects) {
+      for (final s in decimals) {
         s.controller.text = plainReading(s.fix);
       }
     }
@@ -207,53 +265,84 @@ class _MeasureTabState extends State<MeasureTab> {
 
   /// 단일 호실 저장 — 저장 후 그 호실만 동기화하므로 다른 입력칸은 그대로 유지된다.
   Future<void> _save(Room room) async {
+    final month = context.read<AppProvider>().chargeMonth;
+    if (!_ready) {
+      showSnack(context, '이 달 검침을 불러온 뒤에 저장해주세요', error: true);
+      return;
+    }
     if (_parse(_water[room.roomId]) == null && _parse(_elec[room.roomId]) == null) {
       showSnack(context, '검침값을 입력해주세요', error: true);
       return;
     }
-    if (!await _confirmDecimals(_decimalSuspects([room])) || !mounted) return;
+    final blanks = _blankFields(room);
+    if (blanks.isNotEmpty) {
+      showSnack(context, '${_meterName(room)}: ${blanks.join('·')} 지침이 비어 있습니다. 빈칸은 0으로 저장돼 사용량이 크게 잘못 계산됩니다.',
+          error: true);
+      return;
+    }
+    if (!await _confirmReadings([room]) || !mounted) return;
     try {
-      await _persist(room);
+      await _persist(room, month);
       await _reloadMaps();
       _syncControllers([room.roomId]);
       if (mounted) {
         setState(() {});
-        showSnack(context, '${room.roomName} 검침 저장 완료');
+        showSnack(context, '${_meterName(room)} 검침 저장 완료');
       }
     } catch (e) {
       if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
     }
   }
 
-  /// 입력된 모든 호실을 한 번에 저장(일괄 저장).
+  /// 입력된 모든 호실을 한 번에 저장(일괄 저장). 빈칸이 있는 계량기는 빼고 알려 준다.
   Future<void> _saveAll() async {
     final p = context.read<AppProvider>();
-    final targets = p.rooms
-        .where((r) => _parse(_water[r.roomId]) != null || _parse(_elec[r.roomId]) != null)
-        .toList();
-    if (targets.isEmpty) {
-      showSnack(context, '입력된 검침값이 없습니다', error: true);
+    final month = p.chargeMonth;
+    if (!_ready) {
+      showSnack(context, '이 달 검침을 불러온 뒤에 저장해주세요', error: true);
       return;
     }
-    if (!await _confirmDecimals(_decimalSuspects(targets)) || !mounted) return;
+    final entered = p.rooms
+        .where((r) => _parse(_water[r.roomId]) != null || _parse(_elec[r.roomId]) != null)
+        .toList();
+    final blocked = <String>[];
+    final targets = <Room>[];
+    for (final r in entered) {
+      final blanks = _blankFields(r);
+      if (blanks.isEmpty) {
+        targets.add(r);
+      } else {
+        blocked.add('${_meterName(r)}(${blanks.join('·')})');
+      }
+    }
+    if (targets.isEmpty) {
+      showSnack(context, blocked.isEmpty ? '입력된 검침값이 없습니다' : '빈칸이 있어 저장하지 않았습니다: ${blocked.join(', ')}',
+          error: true);
+      return;
+    }
+    if (!await _confirmReadings(targets) || !mounted) return;
     var ok = 0;
     final failed = <String>[];
     for (final r in targets) {
       try {
-        await _persist(r);
+        await _persist(r, month);
         ok++;
       } catch (_) {
-        failed.add(r.roomName);
+        failed.add(_meterName(r));
       }
     }
     await _reloadMaps();
     _syncControllers(targets.map((r) => r.roomId));
     if (mounted) {
       setState(() {});
+      final notes = [
+        if (failed.isNotEmpty) '실패: ${failed.join(', ')}',
+        if (blocked.isNotEmpty) '빈칸이라 저장 안 함: ${blocked.join(', ')}',
+      ];
       showSnack(
         context,
-        failed.isEmpty ? '$ok개 호실 일괄 저장 완료' : '$ok개 저장 · 실패: ${failed.join(', ')}',
-        error: failed.isNotEmpty,
+        notes.isEmpty ? '$ok개 계량기 일괄 저장 완료' : '$ok개 저장 · ${notes.join(' · ')}',
+        error: notes.isNotEmpty,
       );
     }
   }
@@ -324,8 +413,10 @@ class _MeasureTabState extends State<MeasureTab> {
               ),
             ),
           ),
-        if (_loading && _byRoom.isEmpty)
+        if (_loading)
           const LoadingView()
+        else if (_loadFailed)
+          ErrorBanner(message: '이 달 검침을 불러오지 못했습니다. 불러온 뒤에 입력·저장할 수 있습니다.', onRetry: _load)
         else if (rooms.isEmpty)
           const Padding(
             padding: EdgeInsets.only(top: 40),
@@ -334,11 +425,12 @@ class _MeasureTabState extends State<MeasureTab> {
         else
           ...rooms.map((r) => _MeasureCard(
                 room: r,
+                title: _meterName(r),
                 info: _byRoom[r.roomId],
                 lastInfo: _lastByRoom[r.roomId],
                 last2Info: _last2ByRoom[r.roomId],
-                waterCtl: _water[r.roomId]!,
-                elecCtl: _elec[r.roomId]!,
+                waterCtl: _ctl(_water, r.roomId),
+                elecCtl: _ctl(_elec, r.roomId),
                 waterPhoto: _photos['${r.roomId}-water'],
                 elecPhoto: _photos['${r.roomId}-electricity'],
                 onSave: () => _save(r),
@@ -351,6 +443,7 @@ class _MeasureTabState extends State<MeasureTab> {
 
 class _MeasureCard extends StatelessWidget {
   final Room room;
+  final String title; // 계량기 이름(같은 호수의 계량기 셋을 구분)
   final BillInfo? info;
   final BillInfo? lastInfo;
   final BillInfo? last2Info;
@@ -363,6 +456,7 @@ class _MeasureCard extends StatelessWidget {
 
   const _MeasureCard({
     required this.room,
+    required this.title,
     required this.info,
     required this.lastInfo,
     required this.last2Info,
@@ -393,7 +487,7 @@ class _MeasureCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(room.roomName,
+                child: Text(title,
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
               ),
@@ -668,7 +762,7 @@ class _MeasureField extends StatelessWidget {
       padding: const EdgeInsets.only(top: 4),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        decoration: BoxDecoration(color: const Color(0xFFFEF2F2), borderRadius: BorderRadius.circular(7)),
+        decoration: BoxDecoration(color: BillyColors.errorSoft, borderRadius: BorderRadius.circular(7)),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -685,6 +779,15 @@ class _MeasureField extends StatelessWidget {
 }
 
 enum _DecimalChoice { fix, asIs }
+
+/// 지난달보다 작은 지침 하나 — 그대로 저장하면 한 바퀴 돈 것으로 계산되는 사용량.
+class _Decrease {
+  final String label; // '고려신경-1 전기'
+  final double last;
+  final double reading;
+  final double usage;
+  const _Decrease(this.label, this.last, this.reading, this.usage);
+}
 
 /// 소수점이 빠진 것 같은 지침 하나 — 고칠 입력칸과 제안값.
 class _DecimalSuspect {
