@@ -8,6 +8,7 @@ import { CreateBillDto } from './dto/create-bill.dto';
 import { UsageDto } from './dto/usage.dto';
 import { CalculateBillDto } from './dto/calculate-bill.dto';
 import { BillCalc, calculateDifference } from './bill-calc';
+import { legacyCalculate } from '../billing/legacy-calc';
 
 /** 조건 조회 결과(bills + rooms + floors 조인). 기존 Go 의 BillInfo. */
 export interface BillInfo {
@@ -256,75 +257,26 @@ export class BillsService {
     if (!(req.ElectricityTotalUsage > 0)) {
       throw new BadRequestException('전체 전기 사용량을 입력해주세요');
     }
-    const costPerKWh = req.ElectricityTotalCost / req.ElectricityTotalUsage;
-
     const bills = await this.getByMonth(req.Month, req.BuildingId);
     const rooms = await this.roomsService.findByBuildingId(req.BuildingId);
 
     const roomMap = new Map<number, Room>(); // roomId -> Room
-    const roomNoSpace = new Map<number, number>(); // roomNumber -> roomSpace
     const roomNoName = new Map<number, string>(); // roomNumber -> roomName (오류 메시지용)
-    let totalSpace = 0;
-
     for (const room of rooms) {
       roomMap.set(room.roomId, room);
-      if (!roomNoSpace.has(room.roomNumber)) {
-        roomNoSpace.set(room.roomNumber, room.roomSpace);
-        roomNoName.set(room.roomNumber, room.roomName);
-        totalSpace += room.roomSpace;
-      }
+      if (!roomNoName.has(room.roomNumber)) roomNoName.set(room.roomNumber, room.roomName);
     }
 
     await this.assertElectricityUsage(req, bills, roomMap);
 
-    const fBillsMap = new Map<number, BillCalc>(); // roomNumber -> BillCalc
-    const billMap = new Map<number, Bill>(); // roomNumber -> 대표 bill (electricity/water_bill 기록용)
-    let totalElectricityCommonCost = 0;
-    let totalWaterUsage = 0;
-
-    for (const bill of bills) {
-      const room = roomMap.get(bill.roomId);
-      if (!room) continue;
-      const roomNumber = room.roomNumber;
-
-      const existing = fBillsMap.get(roomNumber);
-      if (existing) {
-        existing.waterUsage += bill.waterUsage;
-        existing.electricityUsage += bill.electricityUsage;
-        existing.calculateElectricityCost(bill.electricityUsage, costPerKWh);
-        totalElectricityCommonCost += existing.electricityCost;
-        totalWaterUsage += bill.waterUsage;
-      } else {
-        const fb = new BillCalc();
-        fb.waterUsage = bill.waterUsage;
-        fb.electricityUsage = bill.electricityUsage;
-        fb.buildingId = req.BuildingId;
-        fb.roomNumber = roomNumber;
-        fb.calculateElectricityCost(bill.electricityUsage, costPerKWh);
-        totalElectricityCommonCost += fb.electricityCost;
-        totalWaterUsage += bill.waterUsage;
-        fBillsMap.set(roomNumber, fb);
-        billMap.set(roomNumber, bill);
-      }
-    }
-
-    for (const [roomNo, fBill] of fBillsMap) {
-      fBill.calculateElectricityCost(fBill.electricityUsage, costPerKWh);
-      const totalCommonCost = fBill.calculateTotalCommonCost(req.ElectricityTotalCost, totalElectricityCommonCost);
-
-      const roomSpace = roomNoSpace.get(roomNo) ?? 0;
-      fBill.calculateElectricityCommonCost(totalCommonCost, roomSpace, totalSpace);
-
-      fBill.calculateElectricityTax();
-      fBill.calculateElectricityFund();
-      fBill.calculateWaterCostSupply(req.WaterSupplyCost, totalWaterUsage, fBill.waterUsage);
-      fBill.calculateWaterCostSewer(req.WaterSewerCost, totalWaterUsage, fBill.waterUsage);
-      const commonWaterCost = fBill.calculateWaterCostCommon(req.WaterTotalCost, req.WaterSupplyCost, req.WaterSewerCost);
-      fBill.calculateWaterCommonCost(commonWaterCost, totalWaterUsage, fBill.waterUsage);
-      fBill.calculateTotal(2500); // TV 수신료 등 고정 2500 (Go 동일)
-
-      fBill.roundMoney();
-    }
+    const { byRoomNumber: fBillsMap, representativeBillId } = legacyCalculate(rooms, bills, {
+      buildingId: req.BuildingId,
+      electricityTotalCost: req.ElectricityTotalCost,
+      electricityTotalUsage: req.ElectricityTotalUsage,
+      waterTotalCost: req.WaterTotalCost,
+      waterSupplyCost: req.WaterSupplyCost,
+      waterSewerCost: req.WaterSewerCost,
+    });
 
     // 사용량 검사를 지나도 금액이 칸을 넘으면(±Infinity 포함) DB 가 500 을 내니 먼저 막는다.
     // NaN(수도 사용량 합 0)은 예전처럼 그대로 둔다 — 비교가 false 라 걸리지 않는다.
@@ -344,11 +296,11 @@ export class BillsService {
 
     await this.billsRepo.manager.transaction(async (em) => {
       for (const [roomNo, fBill] of fBillsMap) {
-        const separateBill = billMap.get(roomNo);
-        if (!separateBill) continue;
+        const billId = representativeBillId.get(roomNo);
+        if (billId === undefined) continue;
         await em.update(
           Bill,
-          { billId: separateBill.billId },
+          { billId },
           { electricityBill: fBill.electricityCostTotal, waterBill: fBill.waterCostTotal },
         );
       }
