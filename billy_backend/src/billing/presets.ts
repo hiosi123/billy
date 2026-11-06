@@ -22,7 +22,7 @@ export const INPUT_LABELS: Record<string, { label: string; unit: string }> = {
   E_COST: { label: '전체 전기요금', unit: '원' },
   E_USAGE: { label: '전체 전기 사용량', unit: 'kWh' },
   W_TOTAL: { label: '전체 수도요금', unit: '원' },
-  W_USAGE: { label: '전체 수도 사용량', unit: '㎥' },
+  W_USAGE: { label: '전체 수도 사용량', unit: 'm³' },
   W_SUPPLY: { label: '상수도 요금', unit: '원' },
   W_SEWER: { label: '하수도 요금', unit: '원' },
 };

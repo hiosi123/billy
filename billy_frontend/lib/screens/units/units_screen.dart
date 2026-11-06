@@ -33,7 +33,7 @@ class UnitsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('호실 ${p.units.length}곳 · 계량기 $meters개 · 전체 면적 ${num2(totalArea)}㎡',
+                  Text('호실 ${p.units.length}곳 · 계량기 $meters개 · 전체 면적 ${num2(totalArea)}m²',
                       style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
                   const SizedBox(height: BillySpace.md),
                   if (p.units.isEmpty)
@@ -63,7 +63,7 @@ class UnitsScreen extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(u.name.isEmpty ? '(이름 없음)' : u.name, style: BillyText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-                                    DotLine(['면적 ${num2(u.area)}㎡', if (u.baseCost > 0) '고정 금액 ${wonText(u.baseCost)}', if (u.floor != null) '${u.floor}층']),
+                                    DotLine(['면적 ${num2(u.area)}m²', if (u.baseCost > 0) '고정 금액 ${wonText(u.baseCost)}', if (u.floor != null) '${u.floor}층']),
                                     const SizedBox(height: BillySpace.sm),
                                     Wrap(spacing: BillySpace.xs, runSpacing: BillySpace.xs, children: [
                                       for (final m in u.meters)
@@ -193,7 +193,7 @@ class _UnitSheetState extends State<_UnitSheet> {
                 child: TextField(
                   controller: _area,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: '면적', suffixText: '㎡', helperText: '면적 비율 항목에 쓰입니다'),
+                  decoration: const InputDecoration(labelText: '면적', suffixText: 'm²', helperText: '면적 비율 항목에 쓰입니다'),
                 ),
               ),
               const SizedBox(width: BillySpace.md),
@@ -213,7 +213,7 @@ class _UnitSheetState extends State<_UnitSheet> {
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.speed_rounded, color: BillyColors.textSecondary),
                 title: Text(m.label.isEmpty ? '계량기' : m.label, style: BillyText.bodyStrong),
-                subtitle: DotLine(['배수 ×${num2(m.measureMultiply)}', if (m.strictWater > 0) '수도 고정 ${num2(m.strictWater)}㎥', if (m.strictElectricity > 0) '전기 고정 ${num2(m.strictElectricity)}kWh']),
+                subtitle: DotLine(['배수 ×${num2(m.measureMultiply)}', if (m.strictWater > 0) '수도 고정 ${num2(m.strictWater)}m³', if (m.strictElectricity > 0) '전기 고정 ${num2(m.strictElectricity)}kWh']),
                 trailing: const Icon(Icons.edit_rounded, size: 18),
                 onTap: () => _editMeter(m),
               ),
@@ -323,7 +323,7 @@ class _MeterSheetState extends State<_MeterSheet> {
             ),
             const SizedBox(height: BillySpace.md),
             Row(children: [
-              Expanded(child: TextField(controller: _sw, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '수도 고정 사용량', suffixText: '㎥'))),
+              Expanded(child: TextField(controller: _sw, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '수도 고정 사용량', suffixText: 'm³'))),
               const SizedBox(width: BillySpace.md),
               Expanded(child: TextField(controller: _se, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '전기 고정 사용량', suffixText: 'kWh'))),
             ]),
@@ -437,7 +437,7 @@ class _NewUnitSheetState extends State<_NewUnitSheet> {
             ]),
             const SizedBox(height: BillySpace.md),
             Row(children: [
-              Expanded(child: TextField(controller: _area, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '면적', suffixText: '㎡'))),
+              Expanded(child: TextField(controller: _area, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '면적', suffixText: 'm²'))),
               const SizedBox(width: BillySpace.md),
               Expanded(child: TextField(controller: _base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '고정 금액', suffixText: '원'))),
             ]),

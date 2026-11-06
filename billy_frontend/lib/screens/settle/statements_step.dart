@@ -130,7 +130,7 @@ class _StatementsStepState extends State<StatementsStep> {
                                 if (s.paidAmount > 0 && !s.paid) '${wonText(s.paidAmount)} 받음',
                                 if (s.paidAt != null) '입금 ${s.paidAt}',
                                 if ((s.memo ?? '').isNotEmpty) s.memo!,
-                                if (s.paidAmount <= 0) '${num2(s.area)}㎡',
+                                if (s.paidAmount <= 0) '${num2(s.area)}m²',
                               ],
                               trailing: InkWell(
                                 onTap: () => _openPayment(s),

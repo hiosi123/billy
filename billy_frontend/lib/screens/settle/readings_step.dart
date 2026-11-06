@@ -241,7 +241,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
               for (final s in decimals)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
-                  child: Text('${s.label}  ${num2(s.reading)} → ${num2(s.fix)}', style: bold),
+                  child: _arrowLine('${s.label}  ${num2(s.reading)}', num2(s.fix), bold),
                 ),
             ],
             if (decimals.isNotEmpty && decreases.isNotEmpty) const SizedBox(height: 14),
@@ -251,7 +251,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
               for (final d in decreases)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
-                  child: Text('${d.label}  ${num2(d.last)} → ${num2(d.reading)}  (사용량 ${num2(d.usage)})', style: bold),
+                  child: _arrowLine('${d.label}  ${num2(d.last)}', '${num2(d.reading)}  (사용량 ${num2(d.usage)})', bold),
                 ),
             ],
           ],
@@ -423,7 +423,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
                           child: Row(
                             children: [
                               Expanded(child: Text(g.$1, style: BillyText.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                              if (g.$2 != null) Text('${num2(g.$2)}㎡', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+                              if (g.$2 != null) Text('${num2(g.$2)}m²', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
                             ],
                           ),
                         ),
@@ -604,6 +604,13 @@ class _MeasureCard extends StatelessWidget {
     );
   }
 }
+
+/// 'A → B' 한 줄. 화살표는 아이콘으로(내장 글꼴에 → 글자가 없다).
+Widget _arrowLine(String from, String to, TextStyle style) => Text.rich(TextSpan(style: style, children: [
+      TextSpan(text: '$from '),
+      const WidgetSpan(alignment: PlaceholderAlignment.middle, child: Icon(Icons.arrow_forward_rounded, size: 14)),
+      TextSpan(text: ' $to'),
+    ]));
 
 /// 사진 표시(S3 URL 또는 방금 촬영한 base64). w/h 미지정 시 원본 크기.
 Widget _photoImage(BillPhoto photo, {double? w, double? h}) {

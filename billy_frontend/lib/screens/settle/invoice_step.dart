@@ -96,13 +96,13 @@ class _InvoiceStepState extends State<InvoiceStep> {
         if (item.usageInput != null) {
           final std = inputLabels[item.usageInput!];
           if (!fields.any((f) => f.key == item.usageInput)) {
-            fields.add(_Field(item.usageInput!, std?.$1 ?? '${item.label} 총 사용량', std?.$2 ?? (item.utility == 'water' ? '㎥' : 'kWh')));
+            fields.add(_Field(item.usageInput!, std?.$1 ?? '${item.label} 총 사용량', std?.$2 ?? (item.utility == 'water' ? 'm³' : 'kWh')));
           }
         }
       }
       // 수도 사용량은 계산엔 안 쓰여도 검산(호실 합계 vs 고지서)에 쓴다 — 수도 항목이 있으면 같이 받는다.
       if (plan.items.any((i) => i.utility == 'water') && !fields.any((f) => f.key == 'W_USAGE')) {
-        fields.add(_Field('W_USAGE', '전체 수도 사용량', '㎥'));
+        fields.add(_Field('W_USAGE', '전체 수도 사용량', 'm³'));
       }
       final direct = <_DirectSection>[];
       for (final item in plan.items.where((i) => i.method == ChargeMethod.direct)) {

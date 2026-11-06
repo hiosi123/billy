@@ -211,8 +211,9 @@ class MonthStepper extends StatelessWidget {
   }
 }
 
-/// '면적 118.8㎡ · 1층' 같은 한 줄 요약. 항목 사이에서만 줄을 바꾼다
-/// (그냥 Text 면 폰에서 '1' 과 '층', '4' 와 '㎥' 사이가 끊긴다).
+/// '면적 118.8m² · 1층' 같은 한 줄 요약. 항목 사이에서만 줄을 바꾼다
+/// (그냥 Text 면 폰에서 '1' 과 '층' 사이가 끊긴다).
+/// 단위는 ㎡·㎥ 대신 m²·m³ — 내장 글꼴에 ㎡·㎥ 가 없어 웹에선 글꼴 서버에서 늦게 받아 와 잠깐 빈칸이 된다.
 class DotLine extends StatelessWidget {
   final List<String> parts;
   final TextStyle? style;

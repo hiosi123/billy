@@ -52,7 +52,7 @@ const USAGE_SUM_TOLERANCE = 1.3;
 const MAX_SUSPECTS = 5;
 
 const kwh = (n: number) => `${n.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}kWh`;
-const m3 = (n: number) => `${n.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}㎥`;
+const m3 = (n: number) => `${n.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}m³`;
 const won = (n: number) => `${Math.round(n).toLocaleString('ko-KR')}원`;
 /** 호실 표시 이름 — 같은 호수에 계량기가 여럿이면 계량기 명칭(천리안안과-1)으로 구분된다. */
 const roomLabel = (room: Room) => `${room.roomNumber}호 ${room.measureMachine || room.roomName}`;

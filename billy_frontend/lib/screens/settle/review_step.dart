@@ -233,9 +233,9 @@ class UnitBillCard extends StatelessWidget {
           title: Text(bill.title, style: BillyText.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: DotLine(info ??
               [
-                '${num2(bill.area)}㎡',
+                '${num2(bill.area)}m²',
                 if (bill.usageElectricity > 0) '전기 ${num2(bill.usageElectricity)}kWh',
-                if (bill.usageWater > 0) '수도 ${num2(bill.usageWater)}㎥',
+                if (bill.usageWater > 0) '수도 ${num2(bill.usageWater)}m³',
                 if (delta != null) '지난달보다 ${delta >= 0 ? '+' : ''}${wonText(delta)}',
               ]),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [

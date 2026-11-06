@@ -28,7 +28,7 @@ const MAX_TOTAL = 1e12; // statements.total numeric(14,2)
 
 const num = (v: unknown) => (v === null || v === undefined ? 0 : parseFloat(String(v)) || 0);
 const won = (n: number) => `${Math.round(n).toLocaleString('ko-KR')}원`;
-const fmtUsage = (n: number, u: Utility) => `${n.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}${u === 'water' ? '㎥' : 'kWh'}`;
+const fmtUsage = (n: number, u: Utility) => `${n.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}${u === 'water' ? 'm³' : 'kWh'}`;
 
 export function prevMonth(yyyymm: string): string {
   const y = parseInt(yyyymm.slice(0, 4), 10);
