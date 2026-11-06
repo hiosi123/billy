@@ -181,6 +181,32 @@ class KeyValueRow extends StatelessWidget {
   }
 }
 
+/// 불러오기 실패 안내 + 다시 시도. (실패를 '데이터 없음'처럼 보이게 하지 않는다)
+class ErrorBanner extends StatelessWidget {
+  final String message;
+  final Future<void> Function() onRetry;
+  const ErrorBanner({super.key, required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      decoration: BoxDecoration(color: BillyColors.errorSoft, borderRadius: BorderRadius.circular(10)),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, size: 18, color: BillyColors.error),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message,
+                style: const TextStyle(fontSize: 13, color: BillyColors.error, fontWeight: FontWeight.w600)),
+          ),
+          TextButton(onPressed: onRetry, child: const Text('다시 시도')),
+        ],
+      ),
+    );
+  }
+}
+
 class LoadingView extends StatelessWidget {
   const LoadingView({super.key});
   @override

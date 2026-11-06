@@ -28,24 +28,48 @@ class _CalculateTabState extends State<CalculateTab> {
   final _waterSewer = TextEditingController();
 
   List<CalcResult> _results = [];
+  String? _resultsMonth; // _results 를 계산한 달 — 내역 저장·엑셀은 이 달로만
+
+  // 그 달 저장값을 불러오는 중/실패. 이때는 계산·저장을 막는다 —
+  // 실패한 채로 두면 이전 달 숫자가 새 달 이름으로 저장됐다(2026-11 점검에서 재현).
+  bool _loadingInput = false;
+  bool _loadFailed = false;
+  int _loadSeq = 0; // 늦게 도착한 이전 달 응답을 버리기 위한 순번
 
   // 업로드한 고지서 사진. 저장 시 S3에 올리고 URL을 보관. 전기는 보통 2장(청구서+내역서).
   BillPhoto? _waterPhoto;
   final List<BillPhoto> _elecPhotos = [];
 
+  List<TextEditingController> get _inputs => [_elecCost, _elecUsage, _waterCost, _waterUsage, _waterSupply, _waterSewer];
+
   @override
   void initState() {
     super.initState();
+    // 입력이 바뀌면 이전 계산 결과는 더 이상 맞지 않는다 — 지워서 옛 결과를 저장·엑셀로 내지 않게.
+    for (final c in _inputs) {
+      c.addListener(_invalidateResults);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadSavedInput());
   }
 
   @override
   void dispose() {
-    for (final c in [_elecCost, _elecUsage, _waterCost, _waterUsage, _waterSupply, _waterSewer]) {
+    for (final c in _inputs) {
       c.dispose();
     }
     super.dispose();
   }
+
+  void _invalidateResults() {
+    if (_results.isNotEmpty && mounted) {
+      setState(() {
+        _results = [];
+        _resultsMonth = null;
+      });
+    }
+  }
+
+  bool get _inputReady => !_loadingInput && !_loadFailed;
 
   // 콤마가 섞여 있어도 안전하게 숫자로 파싱.
   double _n(TextEditingController c) => double.tryParse(c.text.replaceAll(',', '').trim()) ?? 0;
@@ -53,22 +77,30 @@ class _CalculateTabState extends State<CalculateTab> {
   String _moneyOrEmpty(dynamic v) => (v is num && v != 0) ? money(v) : '';
 
   /// 이 건물·월에 저장된 입력값/사진을 불러와 복원. 없으면 입력칸·사진 초기화.
+  /// 먼저 입력을 비우고 불러온다 — 실패하면 빈 채로 두고 계산·저장을 막는다.
   Future<void> _loadSavedInput() async {
     final p = context.read<AppProvider>();
     if (p.selectedBuilding == null) return;
+    final seq = ++_loadSeq;
+    final buildingId = p.selectedBuilding!.buildingId;
+    final month = p.chargeMonth;
+    setState(() {
+      _loadingInput = true;
+      _loadFailed = false;
+      _results = [];
+      _resultsMonth = null;
+      for (final c in _inputs) {
+        c.clear();
+      }
+      _waterPhoto = null;
+      _elecPhotos.clear();
+    });
     try {
-      final r = await p.api.getCalcInput(p.selectedBuilding!.buildingId, p.chargeMonth);
-      if (!mounted) return;
+      final r = await p.api.getCalcInput(buildingId, month);
+      if (!mounted || seq != _loadSeq) return; // 그새 달·건물이 바뀌었으면 버린다
       setState(() {
-        _results = [];
-        if (r == null) {
-          for (final c in [_elecCost, _elecUsage, _waterCost, _waterUsage, _waterSupply, _waterSewer]) {
-            c.clear();
-          }
-          _waterPhoto = null;
-          _elecPhotos.clear();
-          return;
-        }
+        _loadingInput = false;
+        if (r == null) return;
         _elecCost.text = _moneyOrEmpty(r['electricityTotalCost']);
         _elecUsage.text = _moneyOrEmpty(r['electricityTotalUsage']);
         _waterCost.text = _moneyOrEmpty(r['waterTotalCost']);
@@ -85,7 +117,11 @@ class _CalculateTabState extends State<CalculateTab> {
               .map(BillPhoto.fromStored));
       });
     } catch (_) {
-      // 조회 실패 시 조용히 무시(입력은 유지)
+      if (!mounted || seq != _loadSeq) return;
+      setState(() {
+        _loadingInput = false;
+        _loadFailed = true;
+      });
     }
   }
 
@@ -101,6 +137,11 @@ class _CalculateTabState extends State<CalculateTab> {
   Future<void> _saveInput() async {
     final p = context.read<AppProvider>();
     final api = p.api;
+    if (!_inputReady) {
+      // 불러오기 전·실패 상태의 빈 입력으로 그 달 저장값을 덮어쓰지 않게
+      showSnack(context, '이 달 입력값을 불러온 뒤에 저장해주세요', error: true);
+      return;
+    }
     try {
       final waterUrl = await _ensureUploaded(api, _waterPhoto);
       final elecUrls = <String>[];
@@ -262,6 +303,12 @@ class _CalculateTabState extends State<CalculateTab> {
 
   Future<void> _calculate() async {
     final p = context.read<AppProvider>();
+    if (!_inputReady) {
+      showSnack(context, '이 달 입력값을 불러온 뒤에 계산해주세요', error: true);
+      return;
+    }
+    final month = p.chargeMonth;
+    final seq = _loadSeq;
     final req = {
       'BuildingId': p.selectedBuilding!.buildingId,
       'Month': p.chargeMonth,
@@ -278,8 +325,12 @@ class _CalculateTabState extends State<CalculateTab> {
     }
     try {
       final res = await p.api.calculateBill(req);
-      setState(() => _results = res);
-      if (mounted) showSnack(context, '${res.length}개 호실 계산 완료');
+      if (!mounted || seq != _loadSeq || month != p.chargeMonth) return; // 계산 중에 달이 바뀌었다
+      setState(() {
+        _results = res;
+        _resultsMonth = month;
+      });
+      showSnack(context, '${res.length}개 호실 계산 완료');
     } catch (e) {
       if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
     }
@@ -287,14 +338,15 @@ class _CalculateTabState extends State<CalculateTab> {
 
   Future<void> _downloadExcel() async {
     final p = context.read<AppProvider>();
-    if (_results.isEmpty) {
+    final month = _resultsMonth;
+    if (_results.isEmpty || month == null) {
       showSnack(context, '먼저 계산을 실행해주세요', error: true);
       return;
     }
     try {
       final bytes = await p.api.makeBillExcel(
-          _results.map((e) => {...e.toExcelJson(), 'ChargeMonth': p.chargeMonth}).toList());
-      final name = await saveXlsx(bytes, 'bills_${p.chargeMonth}.xlsx');
+          _results.map((e) => {...e.toExcelJson(), 'ChargeMonth': month}).toList());
+      final name = await saveXlsx(bytes, 'bills_$month.xlsx');
       if (mounted) showSnack(context, '엑셀 명세서 생성 완료 ($name)');
     } catch (e) {
       if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
@@ -303,12 +355,13 @@ class _CalculateTabState extends State<CalculateTab> {
 
   Future<void> _saveHistory() async {
     final p = context.read<AppProvider>();
-    if (_results.isEmpty) return;
+    final month = _resultsMonth;
+    if (_results.isEmpty || month == null) return;
     try {
       final payload = _results
           .map((r) => {
                 'roomNumber': r.roomNumber,
-                'chargeMonth': p.chargeMonth,
+                'chargeMonth': month,
                 'electricityCost': r.electricityCost,
                 'electricityCostCommon': r.electricityCostCommon,
                 'electricityCostTax': r.electricityCostTax,
@@ -344,6 +397,12 @@ class _CalculateTabState extends State<CalculateTab> {
             _loadSavedInput(); // 월 바꾸면 그 달 저장값 복원
           },
         ),
+        if (_loadingInput) const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator(minHeight: 2)),
+        if (_loadFailed)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: ErrorBanner(message: '이 달 입력값을 불러오지 못했습니다. 불러온 뒤에 계산·저장할 수 있습니다.', onRetry: _loadSavedInput),
+          ),
         const SizedBox(height: 14),
         SectionCard(
           title: '고지서 합계 입력',

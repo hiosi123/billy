@@ -39,4 +39,10 @@ void main() {
     expect(plainReading(100.5), '100.5');
     expect(plainReading(1000), '1000');
   });
+
+  test('rolloverUsage — 지침이 줄면 한 바퀴 돈 것으로(배수는 마지막에 곱한다)', () {
+    expect(rolloverUsage(777, 770, 1), 993); // 1000 − 777 + 770
+    expect(rolloverUsage(7293.23, 5, 25), closeTo(67794.25, 1e-6)); // (10000 − 7293.23 + 5) × 25
+    expect(rolloverUsage(9990, 5, 25), 375); // ×25 계량기 9990→5 = 15 × 25
+  });
 }
