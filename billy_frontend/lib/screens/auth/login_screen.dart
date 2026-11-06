@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/common.dart';
+import '../../app/router.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -36,8 +38,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final res = await _api.login(_username.text.trim(), _password.text);
       await AuthService.saveSession(res['access_token'], Map<String, dynamic>.from(res['user']));
       if (!mounted) return;
-      context.read<AppProvider>().reset();
-      Navigator.pushReplacementNamed(context, '/home');
+      context.read<AppProvider>().clear();
+      authState.value = true;
+      context.go('/');
     } catch (e) {
       if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
     } finally {
@@ -52,7 +55,7 @@ class _LoginScreenState extends State<LoginScreen> {
         decoration: const BoxDecoration(gradient: BillyColors.headerGradient),
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(BillySpace.xxl),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 400),
               child: Column(
@@ -60,69 +63,55 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   // 로고
                   Container(
-                    width: 76,
-                    height: 76,
+                    width: 72,
+                    height: 72,
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: BillyColors.glow(Colors.black.withValues(alpha: 0.2)),
+                      color: BillyColors.surface,
+                      borderRadius: BorderRadius.circular(BillyRadius.xl),
+                      boxShadow: BillyColors.glow(BillyColors.textPrimary),
                     ),
-                    child: const Icon(Icons.apartment_rounded, size: 40, color: BillyColors.primary),
+                    child: const Icon(Icons.apartment_rounded, size: 38, color: BillyColors.primary),
                   ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Billy',
-                    style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -1),
-                  ),
-                  const Text(
-                    '건물 관리비를 한 번에',
-                    style: TextStyle(fontSize: 14, color: Colors.white70, fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: BillySpace.lg),
+                  Text('Billy', style: BillyText.display.copyWith(color: BillyColors.onDark, fontSize: 32)),
+                  const SizedBox(height: BillySpace.xs),
+                  Text('검침부터 명세서까지, 우리 건물 방식대로', style: BillyText.body.copyWith(color: BillyColors.onDarkMuted)),
+                  const SizedBox(height: BillySpace.xxl),
                   // 로그인 카드
                   Container(
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.all(22),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextField(
-                          controller: _username,
-                          decoration: const InputDecoration(
-                            labelText: '아이디',
-                            prefixIcon: Icon(Icons.person_outline, size: 20),
+                    decoration: BoxDecoration(color: BillyColors.surface, borderRadius: BorderRadius.circular(BillyRadius.xl)),
+                    padding: const EdgeInsets.all(BillySpace.xl),
+                    child: AutofillGroup(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextField(
+                            controller: _username,
+                            autofillHints: const [AutofillHints.username],
+                            decoration: const InputDecoration(labelText: '아이디', prefixIcon: Icon(Icons.person_outline, size: 20)),
+                            textInputAction: TextInputAction.next,
                           ),
-                          textInputAction: TextInputAction.next,
-                        ),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: _password,
-                          obscureText: true,
-                          decoration: const InputDecoration(
-                            labelText: '비밀번호',
-                            prefixIcon: Icon(Icons.lock_outline, size: 20),
+                          const SizedBox(height: BillySpace.md),
+                          TextField(
+                            controller: _password,
+                            obscureText: true,
+                            autofillHints: const [AutofillHints.password],
+                            decoration: const InputDecoration(labelText: '비밀번호', prefixIcon: Icon(Icons.lock_outline, size: 20)),
+                            onSubmitted: (_) => _login(),
                           ),
-                          onSubmitted: (_) => _login(),
-                        ),
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: _loading ? null : _login,
-                            child: _loading
-                                ? const SizedBox(
-                                    width: 22, height: 22,
-                                    child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                                : const Text('로그인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: BillySpace.xl),
+                          SizedBox(
+                            height: 50,
+                            child: FilledButton(
+                              onPressed: _loading ? null : _login,
+                              child: _loading
+                                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: BillyColors.onDark))
+                                  : const Text('로그인'),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Building Fee Management',
-                    style: TextStyle(color: Colors.white60, fontSize: 12, letterSpacing: 0.5),
                   ),
                 ],
               ),

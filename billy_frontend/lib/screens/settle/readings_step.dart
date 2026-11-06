@@ -11,16 +11,19 @@ import '../../utils/format.dart';
 import '../../utils/image_pick.dart';
 import '../../utils/meter_check.dart';
 import '../../widgets/common.dart';
-import 'month_selector.dart';
+import '../../widgets/ui.dart';
 
-class MeasureTab extends StatefulWidget {
-  const MeasureTab({super.key});
+/// 정산 1단계 — 검침. 호실별로 계량기를 묶어 보여 주고, 저장 전에 빈칸·소수점·감소를 확인한다.
+class ReadingsStep extends StatefulWidget {
+  final String month;
+  final VoidCallback onNext;
+  const ReadingsStep({super.key, required this.month, required this.onNext});
 
   @override
-  State<MeasureTab> createState() => _MeasureTabState();
+  State<ReadingsStep> createState() => _ReadingsStepState();
 }
 
-class _MeasureTabState extends State<MeasureTab> {
+class _ReadingsStepState extends State<ReadingsStep> {
   bool _loading = true; // 첫 프레임부터 스피너(컨트롤러가 생기기 전에 카드를 그리지 않게)
   // 그 달을 불러오지 못함 — 이때는 카드를 숨기고 저장을 막는다. 실패한 채로 두면
   // 이전 달 숫자가 새 달 이름으로 저장됐다(2026-11 점검에서 재현).
@@ -48,6 +51,12 @@ class _MeasureTabState extends State<MeasureTab> {
   }
 
   @override
+  void didUpdateWidget(covariant ReadingsStep old) {
+    super.didUpdateWidget(old);
+    if (old.month != widget.month) _load();
+  }
+
+  @override
   void dispose() {
     for (final c in _water.values) {
       c.dispose();
@@ -66,8 +75,8 @@ class _MeasureTabState extends State<MeasureTab> {
   Future<void> _load() async {
     final p = context.read<AppProvider>();
     final seq = ++_loadSeq;
-    final buildingId = p.selectedBuilding!.buildingId;
-    final month = p.chargeMonth;
+    final buildingId = p.building!.buildingId;
+    final month = widget.month;
     setState(() {
       _loading = true;
       _loadFailed = false;
@@ -135,11 +144,11 @@ class _MeasureTabState extends State<MeasureTab> {
   /// 이번달/지난달 청구 맵만 다시 불러온다(입력 컨트롤러는 건드리지 않음).
   Future<void> _reloadMaps() async {
     final p = context.read<AppProvider>();
-    final buildingId = p.selectedBuilding!.buildingId;
-    final prev1 = _prevMonth(p.chargeMonth);
+    final buildingId = p.building!.buildingId;
+    final prev1 = _prevMonth(widget.month);
     final prev2 = _prevMonth(prev1);
     final results = await Future.wait([
-      p.api.getBillsByCondition(month: p.chargeMonth, buildingId: buildingId),
+      p.api.getBillsByCondition(month: widget.month, buildingId: buildingId),
       p.api.getBillsByCondition(month: prev1, buildingId: buildingId),
       p.api.getBillsByCondition(month: prev2, buildingId: buildingId),
     ]);
@@ -265,7 +274,7 @@ class _MeasureTabState extends State<MeasureTab> {
 
   /// 단일 호실 저장 — 저장 후 그 호실만 동기화하므로 다른 입력칸은 그대로 유지된다.
   Future<void> _save(Room room) async {
-    final month = context.read<AppProvider>().chargeMonth;
+    final month = widget.month;
     if (!_ready) {
       showSnack(context, '이 달 검침을 불러온 뒤에 저장해주세요', error: true);
       return;
@@ -297,7 +306,7 @@ class _MeasureTabState extends State<MeasureTab> {
   /// 입력된 모든 호실을 한 번에 저장(일괄 저장). 빈칸이 있는 계량기는 빼고 알려 준다.
   Future<void> _saveAll() async {
     final p = context.read<AppProvider>();
-    final month = p.chargeMonth;
+    final month = widget.month;
     if (!_ready) {
       showSnack(context, '이 달 검침을 불러온 뒤에 저장해주세요', error: true);
       return;
@@ -370,72 +379,87 @@ class _MeasureTabState extends State<MeasureTab> {
   @override
   Widget build(BuildContext context) {
     final p = context.watch<AppProvider>();
-    final rooms = [...p.rooms]..sort((a, b) => a.roomNumber.compareTo(b.roomNumber));
+    final roomById = {for (final r in p.rooms) r.roomId: r};
+    // 호실별로 계량기를 묶는다(호실 순서 = 서버 순서). 호실에 안 묶인 계량기는 맨 뒤 '기타'.
+    final grouped = <(String, double?, List<Room>, bool)>[]; // (제목, 면적, 계량기, 호실에 안 묶인 것)
+    final seen = <int>{};
+    for (final u in p.units) {
+      final rs = [for (final m in u.meters) if (roomById[m.roomId] != null) roomById[m.roomId]!];
+      seen.addAll(rs.map((r) => r.roomId));
+      if (rs.isNotEmpty) grouped.add((u.title, u.area, rs, false));
+    }
+    final rest = p.rooms.where((r) => !seen.contains(r.roomId)).toList();
+    if (rest.isNotEmpty) grouped.add(('기타 계량기', null, rest, true));
+    final total = p.rooms.length;
+    final entered = p.rooms.where((r) => _byRoom.containsKey(r.roomId)).length;
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+    return Column(
       children: [
-        MonthSelector(
-          month: p.chargeMonth,
-          onChanged: (m) {
-            p.setChargeMonth(m);
-            _load();
-          },
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: BillyColors.primarySoft, borderRadius: BorderRadius.circular(10)),
-          child: const Row(
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(BillySpace.gutter, BillySpace.md, BillySpace.gutter, BillySpace.xl),
             children: [
-              Icon(Icons.info_outline, size: 16, color: BillyColors.primary),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '계량기 지침값을 입력하면 지난달 대비 사용량이 자동 계산됩니다. (지난달 데이터가 있어야 합니다)',
-                  style: TextStyle(fontSize: 12, color: BillyColors.primaryDark, fontWeight: FontWeight.w500),
+              ContentWidth(
+                max: 900,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('계량기 지침을 넣으면 지난달 대비 사용량이 바로 보입니다. 사진을 찍으면 AI 가 숫자를 읽어 줍니다.',
+                        style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+                    const SizedBox(height: BillySpace.md),
+                    if (_loading)
+                      const LoadingView()
+                    else if (_loadFailed)
+                      ErrorBanner(message: '이 달 검침을 불러오지 못했습니다. 불러온 뒤에 입력·저장할 수 있습니다.', onRetry: _load)
+                    else if (p.rooms.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 40),
+                        child: EmptyView(icon: Icons.meeting_room_outlined, message: '계량기가 없습니다.\n호실 탭에서 호실·계량기를 등록해주세요.'),
+                      )
+                    else
+                      for (final g in grouped) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(2, BillySpace.md, 2, BillySpace.sm),
+                          child: Row(
+                            children: [
+                              Expanded(child: Text(g.$1, style: BillyText.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                              if (g.$2 != null) Text('${num2(g.$2)}㎡', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+                            ],
+                          ),
+                        ),
+                        for (final r in g.$3)
+                          _MeasureCard(
+                            room: r,
+                            // 호실 제목이 위에 있으니 계량기가 하나면 이름을 되풀이하지 않는다
+                            title: g.$3.length > 1 || g.$4 ? _meterName(r) : null,
+                            showNumber: g.$4,
+                            info: _byRoom[r.roomId],
+                            lastInfo: _lastByRoom[r.roomId],
+                            last2Info: _last2ByRoom[r.roomId],
+                            waterCtl: _ctl(_water, r.roomId),
+                            elecCtl: _ctl(_elec, r.roomId),
+                            waterPhoto: _photos['${r.roomId}-water'],
+                            elecPhoto: _photos['${r.roomId}-electricity'],
+                            onSave: () => _save(r),
+                            onPickPhoto: _pickAndRead,
+                          ),
+                      ],
+                  ],
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 14),
-        if (rooms.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: SizedBox(
-              width: double.infinity,
+        StickyActionBar(
+          leading: Text('저장된 계량기 $entered/$total', style: BillyText.captionStrong.copyWith(color: entered >= total && total > 0 ? BillyColors.success : BillyColors.textSecondary)),
+          children: [
+            SizedBox(height: 46, child: AsyncButton(label: '모두 저장', icon: Icons.save_alt_rounded, onPressed: () async => _saveAll())),
+            SizedBox(
               height: 46,
-              child: AsyncButton(
-                label: '전체 호실 일괄 저장',
-                icon: Icons.save_alt_rounded,
-                onPressed: () async => _saveAll(),
-              ),
+              child: OutlinedButton(onPressed: widget.onNext, child: const Text('다음: 고지서')),
             ),
-          ),
-        if (_loading)
-          const LoadingView()
-        else if (_loadFailed)
-          ErrorBanner(message: '이 달 검침을 불러오지 못했습니다. 불러온 뒤에 입력·저장할 수 있습니다.', onRetry: _load)
-        else if (rooms.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(top: 40),
-            child: EmptyView(icon: Icons.meeting_room_outlined, message: '호실이 없습니다.\n먼저 호실을 등록해주세요.'),
-          )
-        else
-          ...rooms.map((r) => _MeasureCard(
-                room: r,
-                title: _meterName(r),
-                info: _byRoom[r.roomId],
-                lastInfo: _lastByRoom[r.roomId],
-                last2Info: _last2ByRoom[r.roomId],
-                waterCtl: _ctl(_water, r.roomId),
-                elecCtl: _ctl(_elec, r.roomId),
-                waterPhoto: _photos['${r.roomId}-water'],
-                elecPhoto: _photos['${r.roomId}-electricity'],
-                onSave: () => _save(r),
-                onPickPhoto: _pickAndRead,
-              )),
+          ],
+        ),
       ],
     );
   }
@@ -443,7 +467,8 @@ class _MeasureTabState extends State<MeasureTab> {
 
 class _MeasureCard extends StatelessWidget {
   final Room room;
-  final String title; // 계량기 이름(같은 호수의 계량기 셋을 구분)
+  final String? title; // 계량기 이름(같은 호실의 계량기 여럿을 구분). null 이면 안 보인다
+  final bool showNumber; // 호실에 안 묶인 계량기만 호수를 따로 보여준다
   final BillInfo? info;
   final BillInfo? lastInfo;
   final BillInfo? last2Info;
@@ -457,6 +482,7 @@ class _MeasureCard extends StatelessWidget {
   const _MeasureCard({
     required this.room,
     required this.title,
+    this.showNumber = false,
     required this.info,
     required this.lastInfo,
     required this.last2Info,
@@ -470,6 +496,8 @@ class _MeasureCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final computed = info != null && (info!.waterUsage > 0 || info!.electricityUsage > 0);
+    final header = title != null || showNumber || computed;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BillyColors.card(),
@@ -477,26 +505,27 @@ class _MeasureCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: BillyColors.surfaceAlt, borderRadius: BorderRadius.circular(7)),
-                child: Text('${room.roomNumber}',
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(title,
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-              ),
-              if (info != null && (info!.waterUsage > 0 || info!.electricityUsage > 0))
-                const BillyBadge('사용량 계산됨', color: BillyColors.success),
-            ],
-          ),
+          if (header)
+            Row(
+              children: [
+                if (showNumber) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(color: BillyColors.surfaceAlt, borderRadius: BorderRadius.circular(7)),
+                    child: Text('${room.roomNumber}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: title == null
+                      ? const SizedBox()
+                      : Text(title!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                ),
+                if (computed) const BillyBadge('사용량 계산됨', color: BillyColors.success),
+              ],
+            ),
           if (lastInfo != null) ...[
-            const SizedBox(height: 10),
+            if (header) const SizedBox(height: 10),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
@@ -599,7 +628,7 @@ void _showPhotoDialog(BuildContext context, BillPhoto photo) {
   showDialog(
     context: context,
     builder: (_) => Dialog(
-      backgroundColor: Colors.black,
+      backgroundColor: BillyColors.photoBackdrop,
       insetPadding: const EdgeInsets.all(16),
       child: InteractiveViewer(child: _photoImage(photo)),
     ),
@@ -721,9 +750,9 @@ class _MeasureField extends StatelessWidget {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration:
-                                    BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
+                                    BoxDecoration(color: BillyColors.scrim, borderRadius: BorderRadius.circular(6)),
                                 child: const Text('탭하면 확대',
-                                    style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w600)),
+                                    style: TextStyle(color: BillyColors.onDark, fontSize: 9, fontWeight: FontWeight.w600)),
                               ),
                             ),
                           ],
@@ -836,13 +865,13 @@ class _CamButtonState extends State<_CamButton> {
           ],
         ),
         child: _busy
-            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: BillyColors.onDark))
             : const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.photo_camera_rounded, size: 14, color: Colors.white),
+                  Icon(Icons.photo_camera_rounded, size: 14, color: BillyColors.onDark),
                   SizedBox(width: 4),
-                  Text('AI 촬영', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
+                  Text('AI 촬영', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: BillyColors.onDark)),
                 ],
               ),
       ),

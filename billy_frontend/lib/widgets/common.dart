@@ -284,7 +284,7 @@ class _AsyncButtonState extends State<AsyncButton> {
   @override
   Widget build(BuildContext context) {
     final child = _loading
-        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: BillyColors.onDark))
         : Row(
             mainAxisSize: MainAxisSize.min,
             children: [
