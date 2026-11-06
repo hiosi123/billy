@@ -247,9 +247,40 @@ export class BillsService {
     }
 
     if (!matchFound) {
-      throw new NotFoundException('지난달 청구에서 일치하는 항목을 찾을 수 없습니다');
+      // 지난달 기록이 없는 계량기 — 예전엔 404 라 새 호실·첫 달을 앱으로 시작할 수 없었다.
+      // 더 이전 기록이 있으면(한 달을 건너뜀) 그 지침부터의 사용량, 없으면(새 계량기) 이번 지침을 기준값으로(사용량 0).
+      newBill = await this.saveWithoutLastMonth(usage, roomMultiplyMap.get(usage.RoomId) ?? (defaultMulti() as Room));
     }
     return newBill;
+  }
+
+  private async saveWithoutLastMonth(usage: UsageDto, multi: Room): Promise<Bill> {
+    const earlier = await this.billsRepo
+      .createQueryBuilder('b')
+      .where('b.room_id = :roomId AND b.charge_month < :month', { roomId: usage.RoomId, month: usage.ChargeMonth })
+      .orderBy('b.charge_month', 'DESC')
+      .getOne();
+    const bill: Partial<Bill> = {
+      waterMeasure: usage.WaterMeasure,
+      waterUsage: earlier ? calculateDifference(earlier.waterMeasure, usage.WaterMeasure, 1) : 0,
+      electricityMeasure: usage.ElectricityMeasure,
+      electricityUsage: earlier ? calculateDifference(earlier.electricityMeasure, usage.ElectricityMeasure, multi.measureMultiply ?? 1) : 0,
+      roomId: usage.RoomId,
+      floorId: usage.FloorId,
+      buildingId: usage.BuildingId,
+      chargeMonth: usage.ChargeMonth,
+    };
+    if (usage.WaterMeterPhoto !== undefined) bill.waterMeterPhoto = usage.WaterMeterPhoto;
+    if (usage.ElectricityMeterPhoto !== undefined) bill.electricityMeterPhoto = usage.ElectricityMeterPhoto;
+    if ((multi.strictWater ?? 0) > 0) bill.waterUsage = multi.strictWater;
+    if ((multi.strictElectricity ?? 0) > 0) bill.electricityUsage = multi.strictElectricity;
+
+    const existing = await this.billsRepo.findOne({ where: { roomId: usage.RoomId, chargeMonth: usage.ChargeMonth } });
+    if (existing) {
+      await this.billsRepo.update({ billId: existing.billId }, bill);
+      return this.findOne(existing.billId);
+    }
+    return this.billsRepo.save(this.billsRepo.create(bill));
   }
 
   /**
