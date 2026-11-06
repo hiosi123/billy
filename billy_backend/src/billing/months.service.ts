@@ -329,8 +329,9 @@ export class MonthsService {
 
   async statements(buildingId: number, month: string) {
     assertMonth(month);
+    // paid_at(DATE)은 글자로 읽는다 — pg 가 Date 로 바꾸면 서버 시간대에 따라 하루 앞당겨진다
     const rows = await this.dataSource.query(
-      'SELECT * FROM statements WHERE building_id = $1 AND charge_month = $2 ORDER BY unit_number',
+      `SELECT *, to_char(paid_at, 'YYYY-MM-DD') AS paid_on FROM statements WHERE building_id = $1 AND charge_month = $2 ORDER BY unit_number`,
       [buildingId, month],
     );
     return rows.map((r: any) => ({
@@ -347,7 +348,7 @@ export class MonthsService {
       status: r.status,
       issuedAt: r.issued_at,
       paidAmount: num(r.paid_amount),
-      paidAt: r.paid_at,
+      paidAt: r.paid_on,
       memo: r.memo,
       plan: r.plan_snapshot ? { preset: r.plan_snapshot.preset ?? null, groups: r.plan_snapshot.groups } : null,
     }));
