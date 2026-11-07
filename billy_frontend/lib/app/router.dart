@@ -24,6 +24,8 @@ Page<void> _tab(GoRouterState s, Widget child) => NoTransitionPage(key: s.pageKe
 final router = GoRouter(
   initialLocation: '/',
   refreshListenable: authState,
+  // 예전 주소(#/home 등 북마크)나 없는 주소는 건물 목록으로 — 기본 영어 'Page Not Found' 화면을 띄우지 않는다.
+  onException: (_, __, router) => router.go('/'),
   redirect: (context, state) {
     final loggedIn = AuthService.isLoggedIn;
     final atLogin = state.matchedLocation == '/login';
