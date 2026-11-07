@@ -4,15 +4,21 @@ import { CreateBuildingDto } from './dto/create-building.dto';
 import { UpdateBuildingDto } from './dto/update-building.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser, AuthUser } from '../common/current-user.decorator';
+import { AccessService } from '../access/access.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('buildings')
 export class BuildingsController {
-  constructor(private readonly buildingsService: BuildingsService) {}
+  constructor(
+    private readonly buildingsService: BuildingsService,
+    private readonly access: AccessService,
+  ) {}
 
+  /** 볼 수 있는 건물 전부(관리자는 모든 건물, 그 밖에는 내 건물·멤버인 건물). */
   @Get()
-  findAll() {
-    return this.buildingsService.findAll();
+  async findAll(@CurrentUser() user: AuthUser) {
+    const ids = await this.access.accessibleBuildingIds(user);
+    return this.buildingsService.findAll(ids);
   }
 
   // 정적 경로(:id 보다 먼저 선언) — 현재 유저의 건물
@@ -22,7 +28,8 @@ export class BuildingsController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
+  async findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, id);
     return this.buildingsService.findOne(id);
   }
 
@@ -32,12 +39,14 @@ export class BuildingsController {
   }
 
   @Put(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateBuildingDto) {
+  async update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateBuildingDto, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, id);
     return this.buildingsService.update(id, dto);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
+  async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    await this.access.assertBuilding(user, id);
     return this.buildingsService.remove(id);
   }
 }

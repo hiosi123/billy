@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Building } from './building.entity';
 import { CreateBuildingDto } from './dto/create-building.dto';
 import { UpdateBuildingDto } from './dto/update-building.dto';
@@ -9,8 +9,10 @@ import { UpdateBuildingDto } from './dto/update-building.dto';
 export class BuildingsService {
   constructor(@InjectRepository(Building) private buildingsRepo: Repository<Building>) {}
 
-  findAll() {
-    return this.buildingsRepo.find({ order: { buildingId: 'ASC' } });
+  /** ids 가 null 이면 전부(관리자), 아니면 그 건물들만. */
+  findAll(ids: number[] | null = null) {
+    if (ids !== null && ids.length === 0) return Promise.resolve([]);
+    return this.buildingsRepo.find({ where: ids === null ? {} : { buildingId: In(ids) }, order: { buildingId: 'ASC' } });
   }
 
   async findOne(id: number) {
@@ -33,7 +35,16 @@ export class BuildingsService {
       owner: dto.owner,
       userId,
     });
-    return this.buildingsRepo.save(building);
+    const saved = await this.buildingsRepo.save(building);
+    try {
+      await this.buildingsRepo.query(
+        `INSERT INTO building_members (building_id, user_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING`,
+        [saved.buildingId, userId],
+      );
+    } catch {
+      // v2 테이블이 아직 없으면(마이그레이션 전) 소유자(user_id)만으로도 접근된다
+    }
+    return saved;
   }
 
   async update(id: number, dto: UpdateBuildingDto) {

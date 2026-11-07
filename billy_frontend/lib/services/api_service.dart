@@ -5,9 +5,8 @@ import '../models/building.dart';
 import '../models/floor.dart';
 import '../models/room.dart';
 import '../models/bill.dart';
-import '../models/building_fee.dart';
-import '../models/calc_result.dart';
-import '../models/bill_history.dart';
+import '../models/v2.dart';
+import '../models/plan.dart';
 
 class ApiService {
   static const String baseUrl =
@@ -53,12 +52,19 @@ class ApiService {
     throw Exception('$msg (${res.statusCode})');
   }
 
-  Future<dynamic> _get(String path) async => _parse(await http.get(_uri(path), headers: _h));
+  /// 응답이 안 오면 무한정 기다리지 않는다(사진 인식은 길어서 따로 넉넉히).
+  static const _timeout = Duration(seconds: 30);
+  static const _ocrTimeout = Duration(seconds: 120);
+  Duration _t(String path) => path.contains('/read-') ? _ocrTimeout : _timeout;
+
+  Future<dynamic> _get(String path) async => _parse(await http.get(_uri(path), headers: _h).timeout(_t(path)));
   Future<dynamic> _post(String path, [Object? body]) async =>
-      _parse(await http.post(_uri(path), headers: _h, body: body == null ? null : jsonEncode(body)));
+      _parse(await http.post(_uri(path), headers: _h, body: body == null ? null : jsonEncode(body)).timeout(_t(path)));
   Future<dynamic> _put(String path, [Object? body]) async =>
-      _parse(await http.put(_uri(path), headers: _h, body: body == null ? null : jsonEncode(body)));
-  Future<dynamic> _delete(String path) async => _parse(await http.delete(_uri(path), headers: _h));
+      _parse(await http.put(_uri(path), headers: _h, body: body == null ? null : jsonEncode(body)).timeout(_t(path)));
+  Future<dynamic> _patch(String path, [Object? body]) async =>
+      _parse(await http.patch(_uri(path), headers: _h, body: body == null ? null : jsonEncode(body)).timeout(_t(path)));
+  Future<dynamic> _delete(String path) async => _parse(await http.delete(_uri(path), headers: _h).timeout(_t(path)));
 
   // ── Auth ──────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> login(String username, String password) async {
@@ -71,9 +77,6 @@ class ApiService {
   // ── Buildings ─────────────────────────────────────────────────────────
   Future<List<Building>> getBuildings() async =>
       ((await _get('/buildings')) as List).map((e) => Building.fromJson(e)).toList();
-
-  Future<List<Building>> getMyBuildings() async =>
-      ((await _get('/buildings/user')) as List).map((e) => Building.fromJson(e)).toList();
 
   Future<Building> getBuilding(int id) async => Building.fromJson(await _get('/buildings/$id'));
 
@@ -171,58 +174,6 @@ class ApiService {
     }));
   }
 
-  /// 관리비 계산. 응답은 roomNumber → 결과 맵.
-  Future<List<CalcResult>> calculateBill(Map<String, dynamic> req) async {
-    final res = await _post('/bills/calculate', req) as Map<String, dynamic>;
-    return res.values.map((e) => CalcResult.fromJson(Map<String, dynamic>.from(e))).toList()
-      ..sort((a, b) => a.roomNumber.compareTo(b.roomNumber));
-  }
-
-  /// 엑셀 명세서 생성 — 바이트 반환.
-  Future<List<int>> makeBillExcel(List<Map<String, dynamic>> bills) async {
-    final res = await http.post(_uri('/bills/excel'), headers: _h, body: jsonEncode(bills));
-    if (res.statusCode >= 200 && res.statusCode < 300) return res.bodyBytes;
-    _checkUnauthorized(res.statusCode);
-    throw Exception('엑셀 생성 실패 (${res.statusCode})');
-  }
-
-  // ── Building Fees ─────────────────────────────────────────────────────
-  Future<BuildingFee> getBuildingFee(int buildingId) async {
-    try {
-      return BuildingFee.fromJson(await _get('/building-fees/buildings/$buildingId'));
-    } catch (_) {
-      return BuildingFee.empty;
-    }
-  }
-
-  Future<BuildingFee> upsertBuildingFee(Map<String, dynamic> data) async =>
-      BuildingFee.fromJson(await _post('/building-fees', data));
-
-  // ── Bill Histories ────────────────────────────────────────────────────
-  /// 월별 저장된 관리비 내역 조회.
-  Future<List<BillHistory>> getBillHistoriesByMonth(String month, int buildingId) async =>
-      ((await _get('/bills/histories/month/$month/building/$buildingId')) as List)
-          .map((e) => BillHistory.fromJson(e))
-          .toList();
-
-  /// 전체 저장된 관리비 내역 조회.
-  Future<List<BillHistory>> getAllBillHistories() async =>
-      ((await _get('/bills/histories')) as List).map((e) => BillHistory.fromJson(e)).toList();
-
-  /// 계산 결과를 관리비 내역으로 저장(배열 일괄).
-  Future<void> saveBillHistories(List<Map<String, dynamic>> histories) async =>
-      await _post('/bills/histories', histories);
-
-  // ── 관리비 계산 입력값(고지서 합계 + 사진) 저장/복원 ────────────────────
-  /// 건물·월 기준 저장된 계산 입력값 조회(없으면 null). elecPhotos 는 base64 배열.
-  Future<Map<String, dynamic>?> getCalcInput(int buildingId, String month) async {
-    final res = await _get('/bills/calc-inputs/building/$buildingId/month/$month');
-    return res == null ? null : Map<String, dynamic>.from(res);
-  }
-
-  /// 계산 입력값 저장(건물·월 upsert).
-  Future<void> saveCalcInput(Map<String, dynamic> data) async => await _post('/bills/calc-inputs', data);
-
   // ── S3 사진 업로드 (presigned URL 방식) ─────────────────────────────────
   Future<Map<String, String>> _presignedUrl(String folder, String contentType) async {
     final data = await _post('/upload/presigned-url', {'folder': folder, 'contentType': contentType}) as Map;
@@ -238,4 +189,93 @@ class ApiService {
     }
     return urls['imageUrl']!;
   }
+
+  // ══ v2: 호실·요금표·월 마감·확정 명세서 ═══════════════════════════════════
+
+  Future<List<UnitV2>> getUnits(int buildingId) async =>
+      ((await _get('/buildings/$buildingId/units')) as List).map((e) => UnitV2.fromJson(Map<String, dynamic>.from(e))).toList();
+
+  Future<UnitV2> updateUnit(int buildingId, int unitId, Map<String, dynamic> data) async =>
+      UnitV2.fromJson(Map<String, dynamic>.from(await _put('/buildings/$buildingId/units/$unitId', data)));
+
+  /// 그달에 쓰일 요금표(+ 버전 목록·기본 프리셋).
+  Future<({PlanDef plan, String source, String? effectiveFrom, List<String> versions, String defaultPreset})> getPlan(int buildingId, String month) async {
+    final j = Map<String, dynamic>.from(await _get('/buildings/$buildingId/plan?month=$month'));
+    return (
+      plan: PlanDef.fromJson(Map<String, dynamic>.from(j['definition'])),
+      source: (j['source'] ?? '').toString(),
+      effectiveFrom: j['effectiveFrom']?.toString(),
+      versions: ((j['versions'] as List?) ?? []).map((v) => (v['effectiveFrom'] ?? '').toString()).toList(),
+      defaultPreset: (j['defaultPreset'] ?? '').toString(),
+    );
+  }
+
+  Future<PlanDef> getPresetPlan(int buildingId, String presetId) async =>
+      PlanDef.fromJson(Map<String, dynamic>.from(await _get('/buildings/$buildingId/plan/preset/$presetId')));
+
+  Future<void> savePlan(int buildingId, String effectiveFrom, PlanDef plan) async =>
+      await _put('/buildings/$buildingId/plan', {'effectiveFrom': effectiveFrom, 'definition': plan.toJson()});
+
+  Future<PreviewV2> previewPlan(int buildingId, String month, PlanDef plan) async =>
+      PreviewV2.fromJson(Map<String, dynamic>.from(await _post('/buildings/$buildingId/plan/preview', {'month': month, 'definition': plan.toJson()})));
+
+  Future<({int meters, List<MonthStatus> months})> getOverview(int buildingId, {int count = 6, String? until}) async {
+    final j = Map<String, dynamic>.from(await _get('/buildings/$buildingId/months?count=$count${until != null ? '&until=$until' : ''}'));
+    return (
+      meters: (j['meters'] as num?)?.toInt() ?? 0,
+      months: ((j['months'] as List?) ?? []).map((e) => MonthStatus.fromJson(Map<String, dynamic>.from(e))).toList(),
+    );
+  }
+
+  /// 그달 입력값(고지서 금액 등) + 고지서 사진 URL.
+  Future<({Map<String, double> values, bool saved, String? waterPhoto, List<String> elecPhotos})> getMonthInputs(int buildingId, String month) async {
+    final j = Map<String, dynamic>.from(await _get('/buildings/$buildingId/months/$month/inputs'));
+    final photos = Map<String, dynamic>.from(j['photos'] ?? {});
+    return (
+      values: {for (final e in Map<String, dynamic>.from(j['values'] ?? {}).entries) e.key: (e.value as num).toDouble()},
+      saved: j['saved'] == true,
+      waterPhoto: photos['water']?.toString(),
+      elecPhotos: ((photos['electricity'] as List?) ?? []).map((e) => e.toString()).toList(),
+    );
+  }
+
+  Future<void> saveMonthInputs(int buildingId, String month, Map<String, double> values, {String? waterPhoto, List<String>? elecPhotos}) async =>
+      await _put('/buildings/$buildingId/months/$month/inputs', {
+        'values': values,
+        if (waterPhoto != null || elecPhotos != null) 'photos': {'water': waterPhoto, 'electricity': elecPhotos ?? []},
+      });
+
+  Future<PreviewV2> previewMonth(int buildingId, String month) async =>
+      PreviewV2.fromJson(Map<String, dynamic>.from(await _post('/buildings/$buildingId/months/$month/preview', {})));
+
+  Future<List<UnitBill>> issueMonth(int buildingId, String month) async =>
+      ((await _post('/buildings/$buildingId/months/$month/issue', {})) as List).map((e) => UnitBill.fromStatement(Map<String, dynamic>.from(e))).toList();
+
+  Future<List<UnitBill>> getStatements(int buildingId, String month) async =>
+      ((await _get('/buildings/$buildingId/months/$month/statements')) as List).map((e) => UnitBill.fromStatement(Map<String, dynamic>.from(e))).toList();
+
+  Future<List<int>> statementsXlsx(int buildingId, String month) async {
+    final res = await http.get(_uri('/buildings/$buildingId/months/$month/statements.xlsx'), headers: _h).timeout(_timeout);
+    if (res.statusCode >= 200 && res.statusCode < 300) return res.bodyBytes;
+    _checkUnauthorized(res.statusCode);
+    String msg = '명세서 엑셀을 만들지 못했습니다';
+    try {
+      final body = jsonDecode(utf8.decode(res.bodyBytes));
+      if (body is Map && body['message'] != null) msg = body['message'].toString();
+    } catch (_) {}
+    throw Exception('$msg (${res.statusCode})');
+  }
+
+  Future<UnitBill> recordPayment(int buildingId, int statementId, {double? paidAmount, String? paidAt, String? memo}) async =>
+      UnitBill.fromStatement(Map<String, dynamic>.from(await _patch('/buildings/$buildingId/statements/$statementId', {
+        if (paidAmount != null) 'paidAmount': paidAmount,
+        'paidAt': paidAt,
+        if (memo != null) 'memo': memo,
+      })));
+
+  Future<StatementSettingsV2> getStatementSettings(int buildingId) async =>
+      StatementSettingsV2.fromJson(Map<String, dynamic>.from(await _get('/buildings/$buildingId/settings')));
+
+  Future<StatementSettingsV2> saveStatementSettings(int buildingId, StatementSettingsV2 s) async =>
+      StatementSettingsV2.fromJson(Map<String, dynamic>.from(await _put('/buildings/$buildingId/settings', s.toJson())));
 }

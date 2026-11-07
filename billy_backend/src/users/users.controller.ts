@@ -3,8 +3,10 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../access/admin.guard';
 
-@UseGuards(JwtAuthGuard)
+/** 계정 관리 — 관리자 전용(예전엔 아무 계정이나 관리자 계정을 만들고 남의 비밀번호를 바꿀 수 있었다). */
+@UseGuards(JwtAuthGuard, AdminGuard)
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

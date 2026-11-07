@@ -17,6 +17,8 @@ dependencies:
   path_provider: ^2.1.5
   share_plus: ^10.1.4
   image_picker: ^1.1.2
+  go_router: ^17.5.0
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:
@@ -26,6 +28,23 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # 한글 폰트를 번들한다(상용 2,350자 + 자모 + 라틴 서브셋, ddiding 과 같은 파일, OFL 1.1 — assets/fonts/OFL.txt).
+  # 웹(CanvasKit)은 번들 폰트에 없는 글자를 구글 CDN 폴백으로 그려서, 안 넣으면 한글이 받아올 때까지 □ 로 깜빡였다.
+  # 같은 파일을 'Roboto' 로도 등록한다 — 엔진 기본 글꼴이 Roboto 라 스타일 없는 자리도 CDN 을 안 부른다.
+  fonts:
+    - family: NotoSansKR
+      fonts:
+        - asset: assets/fonts/NotoSansKR-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansKR-Bold.ttf
+          weight: 700
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/NotoSansKR-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansKR-Bold.ttf
+          weight: 700
 
 # 런처 아이콘 생성: `dart run flutter_launcher_icons`
 flutter_launcher_icons:

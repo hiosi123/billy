@@ -16,3 +16,20 @@ double? suggestDecimalFix(double? reading, double? lastReading) {
 
 /// 입력칸에 넣을 지침 문자열 — 소수 셋째 자리까지, 뒤의 0 은 뺀다(12073.7 · 7430.86 · 37001).
 String plainReading(double v) => v.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
+
+/// 지침이 지난달보다 작을 때 서버가 계산하는 사용량(계량기가 한 바퀴 돈 것으로 봄):
+/// (지난달 지침 자릿수의 다음 10의 거듭제곱 − 지난달 + 이번달) × 배수.
+/// 화면에서 '그대로 저장하면 사용량이 얼마로 잡히는지' 보여 줄 때 쓴다(bill-calc.ts calculateDifference 와 같은 식).
+double rolloverUsage(double last, double reading, double multiply) {
+  final digits = last >= 1 ? last.floor().toString().length : 1;
+  final rolloverPoint = _pow10(digits);
+  return (rolloverPoint - last + reading) * multiply;
+}
+
+double _pow10(int n) {
+  var v = 1.0;
+  for (var i = 0; i < n; i++) {
+    v *= 10;
+  }
+  return v;
+}

@@ -13,11 +13,16 @@ import { BillHistoriesModule } from './bill-histories/bill-histories.module';
 import { CalcInputsModule } from './calc-inputs/calc-inputs.module';
 import { UploadModule } from './upload/upload.module';
 import { BillsModule } from './bills/bills.module';
+import { DatabaseModule } from './database/database.module';
+import { AccessModule } from './access/access.module';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({ inject: [ConfigService], useFactory: databaseConfigFactory }),
+    DatabaseModule,
+    AccessModule,
     AuthModule,
     UsersModule,
     BuildingsModule,
@@ -29,10 +34,11 @@ import { BillsModule } from './bills/bills.module';
     CalcInputsModule,
     UploadModule,
     BillsModule,
+    BillingModule,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(LoggerMiddleware).forRoutes('*');
+    consumer.apply(LoggerMiddleware).forRoutes('{*path}'); // '*' 는 Express 5 에서 경고(LegacyRouteConverter)
   }
 }
