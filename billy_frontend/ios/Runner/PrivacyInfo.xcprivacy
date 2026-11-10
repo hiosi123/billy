@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  앱 본체(Runner)의 개인정보 매니페스트 — 없으면 업로드가 ITMS-91053 으로 거부될 수 있다.
+
+  - 추적하지 않는다: 광고·분석 SDK 가 없다. NSPrivacyTracking 은 false, 도메인은 비운다
+    (true 면 도메인이 하나 이상 있어야 한다 — 뛰딩 1.36.1 이 ITMS-91064 로 막혔다).
+  - CA92.1 = 앱 자신만 읽고 쓰는 설정값(shared_preferences 의 로그인 토큰). 플러그인 매니페스트가
+    번들에 안 들어가는 경우가 있어 여기서도 선언한다.
+  - 수집 데이터(NSPrivacyCollectedDataTypes)는 비워 둔다 — App Store Connect 개인정보 라벨에서 따로 답한다
+    (API 로 넣으면 바로 공개된다 — 사장님 「게시해」 뒤에만).
+-->
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
