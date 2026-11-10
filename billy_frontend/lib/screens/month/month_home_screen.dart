@@ -52,7 +52,12 @@ class _MonthHomeScreenState extends State<MonthHomeScreen> {
     });
     try {
       final current = currentChargeMonth();
-      final until = _month.compareTo(current) > 0 ? _month : current;
+      // 12달 창에 이 달이 들어오게 — 1년 넘게 지난 달은 그 달부터 본다(예전엔 늘 '아직 확정 전'으로 보였다)
+      final until = _month.compareTo(current) > 0
+          ? _month
+          : _month.compareTo(MonthStepper.shift(current, -11)) < 0
+              ? MonthStepper.shift(_month, 11)
+              : current;
       final r = await p.api.getOverview(bid, count: 12, until: until);
       if (!mounted) return;
       setState(() {
@@ -227,7 +232,8 @@ class _Steps extends StatelessWidget {
         issued ? (paid ? Tone.ok : Tone.warn) : Tone.neutral
       ),
     ];
-    final next = !readingsDone ? 'readings' : !inputs ? 'invoice' : !issued ? 'review' : 'statements';
+    // 확정한 달은 명세서로 — 빈 계량기가 있어도 확정은 되니 검침으로 돌려보내지 않는다
+    final next = issued ? 'statements' : !readingsDone ? 'readings' : !inputs ? 'invoice' : 'review';
     return BillyCard(
       padding: const EdgeInsets.symmetric(vertical: BillySpace.xs),
       child: Column(
@@ -241,7 +247,7 @@ class _Steps extends StatelessWidget {
                 child: Icon(steps[i].$5 == Tone.ok ? Icons.check_rounded : steps[i].$2, size: 18, color: toneColor(steps[i].$5)),
               ),
               title: Text('${i + 1}. ${steps[i].$3}', style: BillyText.bodyStrong),
-              subtitle: Text(steps[i].$4, style: BillyText.caption.copyWith(color: BillyColors.textSecondary), maxLines: 2),
+              subtitle: Text(keepAll(steps[i].$4), style: BillyText.caption.copyWith(color: BillyColors.textSecondary), maxLines: 2),
               trailing: const Icon(Icons.chevron_right_rounded, color: BillyColors.textHint),
             ),
           Padding(

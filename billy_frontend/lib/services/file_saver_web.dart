@@ -15,6 +15,7 @@ Future<String> saveXlsx(List<int> bytes, String filename) async {
   web.document.body?.append(a);
   a.click();
   a.remove();
-  web.URL.revokeObjectURL(url);
+  // 바로 지우면 아이폰 사파리·홈 화면 앱에서 내려받기가 조용히 실패했다 — 잠시 뒤에 지운다
+  Future.delayed(const Duration(seconds: 30), () => web.URL.revokeObjectURL(url));
   return filename;
 }

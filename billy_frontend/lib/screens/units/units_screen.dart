@@ -111,9 +111,12 @@ class UnitsScreen extends StatelessWidget {
 }
 
 double? _num(TextEditingController c) {
-  final t = c.text.replaceAll(',', '').trim();
+  final t = c.text.replaceAll(',', '').replaceAll('원', '').trim();
   return t.isEmpty ? null : double.tryParse(t);
 }
+
+/// 칸에 뭔가 있는데 숫자가 아님 — 예전엔 조용히 0 이 돼 화재보험료 같은 금액이 지워졌다.
+bool _bad(TextEditingController c) => c.text.trim().isNotEmpty && _num(c) == null;
 
 /// 호실 수정 + 그 호실의 계량기 관리.
 class _UnitSheet extends StatefulWidget {
@@ -128,6 +131,7 @@ class _UnitSheetState extends State<_UnitSheet> {
   late final _name = TextEditingController(text: widget.unit.name);
   late final _area = TextEditingController(text: num2(widget.unit.area).replaceAll(',', ''));
   late final _base = TextEditingController(text: widget.unit.baseCost == 0 ? '' : widget.unit.baseCost.round().toString());
+  bool _busy = false; // 두 번 눌러 두 번 저장하거나 창이 두 번 닫혀 뒤 화면까지 닫히지 않게
 
   @override
   void dispose() {
@@ -138,12 +142,18 @@ class _UnitSheetState extends State<_UnitSheet> {
   }
 
   Future<void> _save() async {
+    if (_busy) return;
     final p = context.read<AppProvider>();
     final area = _num(_area);
     if (area == null || area < 0) {
       showSnack(context, '면적을 숫자로 넣어 주세요', error: true);
       return;
     }
+    if (_bad(_base) || (_num(_base) ?? 0) < 0) {
+      showSnack(context, '고정 금액은 0 이상의 숫자로 넣어 주세요', error: true);
+      return;
+    }
+    setState(() => _busy = true);
     try {
       await p.api.updateUnit(p.buildingId!, widget.unit.unitId, {'name': _name.text.trim(), 'area': area, 'baseCost': _num(_base) ?? 0});
       await p.reloadStructure();
@@ -152,7 +162,32 @@ class _UnitSheetState extends State<_UnitSheet> {
         showSnack(context, '${widget.unit.unitNumber}호를 저장했습니다');
       }
     } catch (e) {
-      if (mounted) showSnack(context, errorText(e), error: true);
+      if (mounted) {
+        setState(() => _busy = false);
+        showSnack(context, errorText(e), error: true);
+      }
+    }
+  }
+
+  /// 계량기가 없는 호실만 — 잘못 만든 호실 정리(남아 있으면 '모든 호실' 항목에서 몫을 받았다).
+  Future<void> _deleteUnit() async {
+    final u = widget.unit;
+    final ok = await confirmAction(context, title: '${u.unitNumber}호를 지울까요?', message: '계량기가 없는 호실입니다. 이미 확정한 명세서는 그대로 남습니다.', ok: '지우기');
+    if (!ok || !mounted) return;
+    final p = context.read<AppProvider>();
+    setState(() => _busy = true);
+    try {
+      await p.api.deleteUnit(p.buildingId!, u.unitId);
+      await p.reloadStructure();
+      if (mounted) {
+        Navigator.pop(context);
+        showSnack(context, '${u.unitNumber}호를 지웠습니다');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        showSnack(context, errorText(e), error: true);
+      }
     }
   }
 
@@ -206,7 +241,7 @@ class _UnitSheetState extends State<_UnitSheet> {
               ),
             ]),
             const SizedBox(height: BillySpace.md),
-            FilledButton(onPressed: _save, child: const Text('호실 저장')),
+            FilledButton(onPressed: _busy ? null : _save, child: const Text('호실 저장')),
             const SectionTitle('계량기', subtitle: '검침하는 단위. 같은 호실에 여러 개를 둘 수 있습니다'),
             for (final m in unit.meters)
               ListTile(
@@ -218,6 +253,14 @@ class _UnitSheetState extends State<_UnitSheet> {
                 onTap: () => _editMeter(m),
               ),
             OutlinedButton.icon(onPressed: () => _editMeter(null), icon: const Icon(Icons.add_rounded), label: const Text('계량기 추가')),
+            if (unit.meters.isEmpty) ...[
+              const SizedBox(height: BillySpace.sm),
+              TextButton(
+                onPressed: _busy ? null : _deleteUnit,
+                style: TextButton.styleFrom(foregroundColor: BillyColors.error),
+                child: const Text('호실 삭제'),
+              ),
+            ],
           ],
         ),
       ),
@@ -236,7 +279,10 @@ class _MeterSheet extends StatefulWidget {
 }
 
 class _MeterSheetState extends State<_MeterSheet> {
-  late final _label = TextEditingController(text: widget.room?.measureMachine ?? '${widget.unit.name}-${widget.unit.meters.length + 1}');
+  // 이름 없는 호실이면 호수로(예전엔 '-2' 같은 이름이 생겼다)
+  late final _label = TextEditingController(
+      text: widget.room?.measureMachine ?? '${widget.unit.name.isEmpty ? '${widget.unit.unitNumber}' : widget.unit.name}-${widget.unit.meters.length + 1}');
+  bool _busy = false;
   late final _multi = TextEditingController(text: widget.room == null ? '1' : num2(widget.room!.measureMultiply).replaceAll(',', ''));
   late final _sw = TextEditingController(text: (widget.room?.strictWater ?? 0) > 0 ? num2(widget.room!.strictWater) : '');
   late final _se = TextEditingController(text: (widget.room?.strictElectricity ?? 0) > 0 ? num2(widget.room!.strictElectricity) : '');
@@ -250,7 +296,12 @@ class _MeterSheetState extends State<_MeterSheet> {
   }
 
   Future<void> _save() async {
+    if (_busy) return;
     final p = context.read<AppProvider>();
+    if (_bad(_multi) || _bad(_sw) || _bad(_se)) {
+      showSnack(context, '배수·고정 사용량은 숫자로 넣어 주세요', error: true);
+      return;
+    }
     final multi = _num(_multi) ?? 1;
     if (multi <= 0) {
       showSnack(context, '배수는 0보다 커야 합니다', error: true);
@@ -262,13 +313,14 @@ class _MeterSheetState extends State<_MeterSheet> {
       'strictWater': _num(_sw) ?? 0,
       'strictElectricity': _num(_se) ?? 0,
     };
+    final floorId = widget.unit.floorId ?? (p.floors.isNotEmpty ? p.floors.first.floorId : null);
+    if (widget.room == null && floorId == null) {
+      showSnack(context, '먼저 층을 하나 만들어 주세요', error: true);
+      return;
+    }
+    setState(() => _busy = true);
     try {
       if (widget.room == null) {
-        final floorId = widget.unit.floorId ?? (p.floors.isNotEmpty ? p.floors.first.floorId : null);
-        if (floorId == null) {
-          showSnack(context, '먼저 층을 하나 만들어 주세요', error: true);
-          return;
-        }
         await p.api.createRoom({
           ...data,
           'roomNumber': widget.unit.unitNumber,
@@ -284,7 +336,10 @@ class _MeterSheetState extends State<_MeterSheet> {
       await p.reloadStructure();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) showSnack(context, errorText(e), error: true);
+      if (mounted) {
+        setState(() => _busy = false);
+        showSnack(context, errorText(e), error: true);
+      }
     }
   }
 
@@ -294,12 +349,16 @@ class _MeterSheetState extends State<_MeterSheet> {
     final ok = await confirmTypedDelete(context, title: '계량기 삭제', name: name, detail: "'$name' 계량기와 그 검침 기록이 모두 지워집니다.");
     if (!ok || !mounted) return;
     final p = context.read<AppProvider>();
+    setState(() => _busy = true);
     try {
       await p.api.deleteRoom(r.roomId);
       await p.reloadStructure();
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) showSnack(context, errorText(e), error: true);
+      if (mounted) {
+        setState(() => _busy = false);
+        showSnack(context, errorText(e), error: true);
+      }
     }
   }
 
@@ -329,13 +388,13 @@ class _MeterSheetState extends State<_MeterSheet> {
             ]),
             Padding(
               padding: const EdgeInsets.only(top: BillySpace.xs),
-              child: Text('고정 사용량을 넣으면 지침과 상관없이 그 값으로 계산합니다(비우면 지침대로).', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+              child: Text(keepAll('고정 사용량을 넣으면 지침과 상관없이 그 값으로 계산합니다(비우면 지침대로).'), style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
             ),
             const SizedBox(height: BillySpace.lg),
-            FilledButton(onPressed: _save, child: Text(widget.room == null ? '추가' : '저장')),
+            FilledButton(onPressed: _busy ? null : _save, child: Text(widget.room == null ? '추가' : '저장')),
             if (widget.room != null) ...[
               const SizedBox(height: BillySpace.sm),
-              TextButton(onPressed: _delete, style: TextButton.styleFrom(foregroundColor: BillyColors.error), child: const Text('계량기 삭제')),
+              TextButton(onPressed: _busy ? null : _delete, style: TextButton.styleFrom(foregroundColor: BillyColors.error), child: const Text('계량기 삭제')),
             ],
           ],
         ),
@@ -359,6 +418,7 @@ class _NewUnitSheetState extends State<_NewUnitSheet> {
   final _base = TextEditingController();
   final _multi = TextEditingController(text: '1');
   int? _floorId;
+  bool _busy = false;
 
   @override
   void dispose() {
@@ -371,20 +431,40 @@ class _NewUnitSheetState extends State<_NewUnitSheet> {
   Future<void> _addFloor() async {
     final p = context.read<AppProvider>();
     final next = (p.floors.isEmpty ? 0 : p.floors.map((f) => f.floor).reduce((a, b) => a > b ? a : b)) + 1;
+    if (_busy) return;
+    setState(() => _busy = true);
     try {
       await p.api.createFloor({'floor': next, 'floorSpace': 0, 'buildingId': p.buildingId});
       await p.reloadStructure();
+      if (!mounted) return;
       setState(() => _floorId = p.floors.firstWhere((f) => f.floor == next).floorId);
     } catch (e) {
       if (mounted) showSnack(context, errorText(e), error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _save() async {
+    if (_busy) return;
     final p = context.read<AppProvider>();
-    final number = int.tryParse(_number.text.trim());
-    if (number == null) {
+    final number = int.tryParse(_number.text.replaceAll('호', '').trim());
+    if (number == null || number <= 0) {
       showSnack(context, '호수를 숫자로 넣어 주세요(예: 101)', error: true);
+      return;
+    }
+    // 계량기 창과 같은 검사 — 배수 0 은 전기를 0 으로, 빈 면적은 면적 몫 0 으로 만들었다
+    final area = _num(_area);
+    if (area == null || area < 0) {
+      showSnack(context, '면적을 숫자로 넣어 주세요(없으면 0)', error: true);
+      return;
+    }
+    if (_bad(_base) || (_num(_base) ?? 0) < 0) {
+      showSnack(context, '고정 금액은 0 이상의 숫자로 넣어 주세요', error: true);
+      return;
+    }
+    if (_bad(_multi) || (_num(_multi) ?? 1) <= 0) {
+      showSnack(context, '전기 배수는 0보다 큰 숫자여야 합니다', error: true);
       return;
     }
     if (p.units.any((u) => u.unitNumber == number)) {
@@ -396,12 +476,13 @@ class _NewUnitSheetState extends State<_NewUnitSheet> {
       showSnack(context, '먼저 층을 만들어 주세요', error: true);
       return;
     }
+    setState(() => _busy = true);
     try {
       await p.api.createRoom({
         'roomNumber': number,
         'roomName': _name.text.trim(),
         'measureMachine': _name.text.trim().isEmpty ? '$number' : _name.text.trim(),
-        'roomSpace': _num(_area) ?? 0,
+        'roomSpace': area,
         'roomBaseCost': _num(_base) ?? 0,
         'measureMultiply': _num(_multi) ?? 1,
         'floorId': floorId,
@@ -413,7 +494,10 @@ class _NewUnitSheetState extends State<_NewUnitSheet> {
         showSnack(context, '$number호를 만들었습니다');
       }
     } catch (e) {
-      if (mounted) showSnack(context, errorText(e), error: true);
+      if (mounted) {
+        setState(() => _busy = false);
+        showSnack(context, errorText(e), error: true);
+      }
     }
   }
 
@@ -453,10 +537,10 @@ class _NewUnitSheetState extends State<_NewUnitSheet> {
                   selected: (_floorId ?? floors.first.floorId) == f.floorId,
                   onSelected: (_) => setState(() => _floorId = f.floorId),
                 ),
-              ActionChip(avatar: const Icon(Icons.add_rounded, size: 16), label: const Text('층 추가'), onPressed: _addFloor),
+              ActionChip(avatar: const Icon(Icons.add_rounded, size: 16), label: const Text('층 추가'), onPressed: _busy ? null : _addFloor),
             ]),
             const SizedBox(height: BillySpace.lg),
-            FilledButton(onPressed: _save, child: const Text('만들기')),
+            FilledButton(onPressed: _busy ? null : _save, child: const Text('만들기')),
           ],
         ),
       ),

@@ -59,9 +59,17 @@ class _ReviewStepState extends State<ReviewStep> {
     }
   }
 
+  bool _issuing = false;
+
+  /// 확정할 수 있는지 — 다시 계산 중이거나 계산이 실패했으면 화면의 옛 금액으로 확정하지 않게 막는다.
+  bool get _canIssue {
+    final pv = _preview;
+    return !_issuing && !_loading && _error == null && pv != null && !pv.hasErrors && pv.units.isNotEmpty;
+  }
+
   Future<void> _issue() async {
     final pv = _preview;
-    if (pv == null || pv.hasErrors || pv.units.isEmpty) return;
+    if (!_canIssue || pv == null) return;
     final again = pv.issuedCount > 0;
     final ok = await confirmAction(
       context,
@@ -73,6 +81,7 @@ class _ReviewStepState extends State<ReviewStep> {
     );
     if (!ok || !mounted) return;
     final p = context.read<AppProvider>();
+    setState(() => _issuing = true);
     try {
       await p.api.issueMonth(p.buildingId!, widget.month);
       if (!mounted) return;
@@ -83,6 +92,8 @@ class _ReviewStepState extends State<ReviewStep> {
       widget.onIssued();
     } catch (e) {
       if (mounted) showSnack(context, errorText(e), error: true);
+    } finally {
+      if (mounted) setState(() => _issuing = false);
     }
   }
 
@@ -115,7 +126,7 @@ class _ReviewStepState extends State<ReviewStep> {
                         IssueList(pv.issues),
                         if (pv.units.isNotEmpty) ...[
                           _Summary(preview: pv),
-                          SectionTitle('호실별 금액', subtitle: pv.planSource == 'default' ? '요금표: 기본(${pv.preset == 'legacy-v1' ? '기존 방식' : pv.preset ?? ''}) — 설정에서 바꿀 수 있습니다' : null),
+                          SectionTitle('호실별 금액', subtitle: pv.planSource == 'default' ? '요금표: 기본(${_presetName(pv.preset)}) — 설정에서 바꿀 수 있습니다' : null),
                           for (final u in pv.units)
                             Padding(
                               padding: const EdgeInsets.only(bottom: BillySpace.sm),
@@ -142,12 +153,17 @@ class _ReviewStepState extends State<ReviewStep> {
                   ],
                 ),
           children: [
-            IconButton(tooltip: '다시 계산', onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
+            // 다시 계산 중이면 단추 자리에 돌아가는 표시
+            _loading && pv != null
+                ? const SizedBox(width: 48, height: 48, child: Padding(padding: EdgeInsets.all(14), child: CircularProgressIndicator(strokeWidth: 2.2)))
+                : IconButton(tooltip: '다시 계산', onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
             SizedBox(
               height: 46,
               child: FilledButton.icon(
-                onPressed: pv == null || pv.hasErrors || pv.units.isEmpty ? null : _issue,
-                icon: const Icon(Icons.verified_rounded),
+                onPressed: _canIssue ? _issue : null,
+                icon: _issuing
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: BillyColors.onDark))
+                    : const Icon(Icons.verified_rounded),
                 label: Text(pv != null && pv.issuedCount > 0 ? '다시 확정' : '확정하기'),
               ),
             ),
@@ -157,6 +173,14 @@ class _ReviewStepState extends State<ReviewStep> {
     );
   }
 }
+
+/// 프리셋 이름(화면 표기) — 서버 id 를 그대로 보이지 않는다.
+String _presetName(String? id) => switch (id) {
+      'legacy-v1' => '기존 방식',
+      'basic-v1' => '기본 상가형',
+      'blank' => '빈 요금표',
+      _ => id ?? '',
+    };
 
 class _Summary extends StatelessWidget {
   final PreviewV2 preview;
@@ -214,9 +238,9 @@ class UnitBillCard extends StatelessWidget {
   final UnitBill bill;
   final double? lastTotal;
   final Widget? trailing;
-  final VoidCallback? onTap;
+  final Widget? footer; // 펼친 내역 맨 아래(명세서: 입금 기록 단추)
   final List<String>? info; // 이름 아래 줄. 없으면 면적·사용량
-  const UnitBillCard({super.key, required this.bill, this.lastTotal, this.trailing, this.onTap, this.info});
+  const UnitBillCard({super.key, required this.bill, this.lastTotal, this.trailing, this.footer, this.info});
 
   @override
   Widget build(BuildContext context) {
@@ -265,6 +289,7 @@ class UnitBillCard extends StatelessWidget {
                   ]),
                 ),
             ],
+            if (footer != null) Padding(padding: const EdgeInsets.only(top: BillySpace.md), child: footer!),
           ],
         ),
       ),

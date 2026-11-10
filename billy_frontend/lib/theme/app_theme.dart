@@ -204,6 +204,9 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(textStyle: BillyText.bodyStrong)),
       inputDecorationTheme: InputDecorationTheme(
+        // 칸 아래 도움말·오류가 한 줄에서 '…'로 잘리지 않게(폰 폭·큰 글자)
+        helperMaxLines: 2,
+        errorMaxLines: 3,
         filled: true,
         fillColor: BillyColors.surfaceAlt,
         isDense: true,

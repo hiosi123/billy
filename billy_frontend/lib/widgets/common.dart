@@ -1,16 +1,166 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'ui.dart' show keepAll;
 
 void showSnack(BuildContext context, String msg, {bool error = false}) {
-  ScaffoldMessenger.of(context).showSnackBar(
+  final text = keepAll(msg);
+  final duration = Duration(seconds: error ? 8 : 4);
+  // 아래 창·가운데 창이 떠 있으면 스낵바가 창 뒤에 깔려 안 보인다 — 화면 맨 위에 같은 모양으로 띄운다
+  if (modalOnTop(context)) {
+    _showTopNotice(context, text, error: error, duration: duration);
+    return;
+  }
+  final messenger = ScaffoldMessenger.of(context);
+  // 줄 서지 않게 — 저장을 연달아 하면 4초씩 이어지며 아래 단추를 가렸다
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(
     SnackBar(
-      content: Text(msg),
+      content: Text(text),
       backgroundColor: error ? BillyColors.error : BillyColors.textPrimary,
       // 오류는 어느 호실을 고칠지까지 담겨 길다 — 읽을 시간을 주고 직접 닫을 수 있게
-      duration: Duration(seconds: error ? 8 : 4),
+      duration: duration,
       showCloseIcon: error,
+      // 화면 아래 고정 단추(모두 저장·다음·확정하기)를 가리지 않게 그 위에 띄운다
+      margin: const EdgeInsets.fromLTRB(BillySpace.gutter, 0, BillySpace.gutter, 84),
     ),
   );
+}
+
+/// 맨 위 라우트를 지켜본다 — 아래 창·가운데 창(PopupRoute)이 떠 있는지 [showSnack] 이 알도록.
+/// router.dart 의 GoRouter(observers:) 에 건다(창은 useRootNavigator 라 루트 내비게이터에 뜬다).
+class ModalWatch extends NavigatorObserver {
+  ModalWatch._();
+  static final instance = ModalWatch._();
+  final _routes = <Route<dynamic>>[];
+
+  Route<dynamic>? get top {
+    _routes.removeWhere((r) => r.navigator == null);
+    return _routes.isEmpty ? null : _routes.last;
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => _routes.add(route);
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) => _routes.remove(route);
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) => _routes.remove(route);
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
+    final i = oldRoute == null ? -1 : _routes.indexOf(oldRoute);
+    if (newRoute == null) return;
+    if (i >= 0) {
+      _routes[i] = newRoute;
+    } else {
+      _routes.add(newRoute);
+    }
+  }
+}
+
+/// 아래 창·가운데 창·메뉴가 맨 위에 떠 있나.
+bool modalOnTop(BuildContext context) {
+  final own = ModalRoute.of(context);
+  if (own is PopupRoute && own.isCurrent) return true;
+  return ModalWatch.instance.top is PopupRoute;
+}
+
+OverlayEntry? _topNotice;
+
+void _showTopNotice(BuildContext context, String text, {required bool error, required Duration duration}) {
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+  final old = _topNotice;
+  if (old != null && old.mounted) old.remove();
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => _TopNotice(
+      text: text,
+      error: error,
+      duration: duration,
+      onDone: () {
+        if (entry.mounted) entry.remove();
+        if (identical(_topNotice, entry)) _topNotice = null;
+      },
+    ),
+  );
+  _topNotice = entry;
+  overlay.insert(entry);
+}
+
+/// 창 위에 뜨는 알림 — 스낵바와 같은 모양, 자리만 화면 맨 위(자판이 올라와도 안 가린다). 누르면 닫힌다.
+class _TopNotice extends StatefulWidget {
+  final String text;
+  final bool error;
+  final Duration duration;
+  final VoidCallback onDone;
+  const _TopNotice({required this.text, required this.error, required this.duration, required this.onDone});
+
+  @override
+  State<_TopNotice> createState() => _TopNoticeState();
+}
+
+class _TopNoticeState extends State<_TopNotice> with SingleTickerProviderStateMixin {
+  late final _anim = AnimationController(vsync: this, duration: const Duration(milliseconds: 200))..forward();
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(widget.duration, _close);
+  }
+
+  Future<void> _close() async {
+    _timer?.cancel();
+    if (!mounted) return;
+    await _anim.reverse();
+    widget.onDone();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        bottom: false,
+        child: FadeTransition(
+          opacity: _anim,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Padding(
+                padding: const EdgeInsets.all(BillySpace.md),
+                child: Material(
+                  color: widget.error ? BillyColors.error : BillyColors.textPrimary,
+                  elevation: 6,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(BillyRadius.md)),
+                  child: InkWell(
+                    onTap: _close,
+                    borderRadius: BorderRadius.circular(BillyRadius.md),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      child: Row(children: [
+                        Expanded(child: Text(widget.text, style: BillyText.body.copyWith(color: BillyColors.onDark))),
+                        if (widget.error) const Icon(Icons.close_rounded, size: 18, color: BillyColors.onDark),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// 제목 + 콘텐츠를 담는 카드 섹션.
@@ -197,7 +347,7 @@ class ErrorBanner extends StatelessWidget {
           const Icon(Icons.error_outline_rounded, size: 18, color: BillyColors.error),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(message,
+            child: Text(keepAll(message),
                 style: const TextStyle(fontSize: 13, color: BillyColors.error, fontWeight: FontWeight.w600)),
           ),
           TextButton(onPressed: onRetry, child: const Text('다시 시도')),
@@ -236,7 +386,7 @@ class EmptyView extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              message,
+              keepAll(message),
               textAlign: TextAlign.center,
               style: const TextStyle(color: BillyColors.textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
             ),
@@ -283,8 +433,12 @@ class _AsyncButtonState extends State<AsyncButton> {
 
   @override
   Widget build(BuildContext context) {
+    // 로딩 중 단추는 비활성 회색이 되는데 흰 스피너는 거기서 안 보였다 — 테두리 단추는 파란 스피너, 채운 단추는 색을 지킨다
     final child = _loading
-        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: BillyColors.onDark))
+        ? SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2.4, color: widget.outlined ? BillyColors.primary : BillyColors.onDark))
         : Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -296,9 +450,10 @@ class _AsyncButtonState extends State<AsyncButton> {
     if (widget.outlined) {
       return OutlinedButton(onPressed: _loading ? null : _run, child: child);
     }
+    final bg = widget.color ?? BillyColors.primary;
     return ElevatedButton(
       onPressed: _loading ? null : _run,
-      style: widget.color != null ? ElevatedButton.styleFrom(backgroundColor: widget.color) : null,
+      style: ElevatedButton.styleFrom(backgroundColor: bg, disabledBackgroundColor: _loading ? bg : null, disabledForegroundColor: _loading ? BillyColors.onDark : null),
       child: child,
     );
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/v2.dart';
@@ -75,7 +76,7 @@ class SectionTitle extends StatelessWidget {
               children: [
                 Text(title, style: BillyText.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
                 if (subtitle != null)
-                  Text(subtitle!, style: BillyText.caption.copyWith(color: BillyColors.textSecondary), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(keepAll(subtitle!), style: BillyText.caption.copyWith(color: BillyColors.textSecondary), maxLines: 2, overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
@@ -120,7 +121,8 @@ class StatusChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[Icon(icon, size: 13, color: c), const SizedBox(width: 4)],
-          Text(label, style: BillyText.tiny.copyWith(color: c), maxLines: 1, overflow: TextOverflow.ellipsis),
+          // Flexible — 좁은 칸에서 긴 계량기 이름이 넘치지 않고 '…'로 줄게
+          Flexible(child: Text(label, style: BillyText.tiny.copyWith(color: c), maxLines: 1, overflow: TextOverflow.ellipsis)),
         ],
       ),
     );
@@ -153,7 +155,7 @@ class IssueList extends StatelessWidget {
                     size: 18, color: i.error ? BillyColors.error : BillyColors.warning),
                 const SizedBox(width: BillySpace.sm),
                 Expanded(
-                  child: Text(i.message,
+                  child: Text(keepAll(i.message),
                       style: BillyText.caption.copyWith(color: i.error ? BillyColors.error : BillyColors.textPrimary, fontWeight: FontWeight.w700)),
                 ),
               ],
@@ -222,10 +224,34 @@ class DotLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = style ?? BillyText.caption.copyWith(color: BillyColors.textSecondary);
-    return Wrap(children: [
-      for (var i = 0; i < parts.length; i++)
-        Text(i < parts.length - 1 ? '${parts[i]} · ' : parts[i], style: s, softWrap: false, overflow: TextOverflow.ellipsis),
-    ]);
+    final scaler = MediaQuery.textScalerOf(context);
+    final dir = Directionality.of(context);
+    const sep = ' · ';
+    // 항목 폭을 재서 한 줄에 들어가는 만큼 묶는다 — 줄 끝에 '·' 가 매달리지 않게(예전 Wrap 은 '면적 118.8m² ·' 로 끝났다)
+    return LayoutBuilder(builder: (context, c) {
+      double width(String t) =>
+          (TextPainter(text: TextSpan(text: t, style: s), textDirection: dir, textScaler: scaler, maxLines: 1)..layout()).width;
+      final lines = <List<String>>[];
+      var line = <String>[];
+      var used = 0.0;
+      final gap = width(sep);
+      for (final p in parts) {
+        final w = width(p);
+        if (line.isNotEmpty && used + gap + w > c.maxWidth) {
+          lines.add(line);
+          line = [p];
+          used = w;
+        } else {
+          used += (line.isEmpty ? 0 : gap) + w;
+          line.add(p);
+        }
+      }
+      if (line.isNotEmpty) lines.add(line);
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        // 항목 하나가 한 줄보다 길 때만 그 안에서(띄어쓰기에서) 접힌다
+        for (final l in lines) Text(keepAll(l.join(sep)), style: s),
+      ]);
+    });
   }
 }
 
@@ -277,7 +303,7 @@ Future<bool> confirmTypedDelete(BuildContext context, {required String title, re
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(detail, style: BillyText.body),
+            Text(keepAll(detail), style: BillyText.body),
             const SizedBox(height: BillySpace.md),
             Text("확인을 위해 '$name' 을(를) 입력하세요", style: BillyText.captionStrong),
             const SizedBox(height: BillySpace.sm),
@@ -295,6 +321,7 @@ Future<bool> confirmTypedDelete(BuildContext context, {required String title, re
       ),
     ),
   );
+  ctl.dispose();
   return ok == true;
 }
 
@@ -305,7 +332,7 @@ Future<bool> confirmAction(BuildContext context, {required String title, require
     useRootNavigator: true,
     builder: (ctx) => AlertDialog(
       title: Text(title),
-      content: Text(message, style: BillyText.body),
+      content: Text(keepAll(message), style: BillyText.body),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
         FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(ok)),
@@ -330,5 +357,17 @@ class ContentWidth extends StatelessWidget {
   }
 }
 
-/// 오류 메시지 정리(Exception: 접두어 제거).
-String errorText(Object e) => e.toString().replaceFirst('Exception: ', '').replaceFirst('TimeoutException after ', '응답이 없습니다: ');
+/// 한글이 낱말 가운데서 줄바꿈되지 않게(CSS keep-all) — 낱말 안 글자 사이에 단어 결합자(U+2060)를 끼운다.
+/// 번들 NotoSansKR 에 U+2060 이 있어 웹이 대체 글꼴을 받으러 가지 않는다. 한 줄에 안 들어가는 긴 낱말은 그래도 끊긴다.
+String keepAll(String s) => s.split(' ').map((w) => w.characters.join('⁠')).join(' ');
+
+/// 오류 메시지 정리 — 'Exception:' 접두어를 떼고, 시간 초과·연결 실패는 사람이 읽는 말로.
+String errorText(Object e) {
+  if (e is TimeoutException) return '서버 응답이 없습니다. 인터넷 연결을 확인하고 다시 해 주세요';
+  final s = e.toString();
+  // 웹 http 의 연결 실패: 'ClientException: XMLHttpRequest error.' 같은 문구
+  if (s.startsWith('ClientException') || s.contains('XMLHttpRequest') || s.contains('Failed to fetch') || s.contains('SocketException')) {
+    return '서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요';
+  }
+  return s.replaceFirst('Exception: ', '');
+}

@@ -7,6 +7,7 @@ import '../models/room.dart';
 import '../models/bill.dart';
 import '../models/v2.dart';
 import '../models/plan.dart';
+import '../models/user.dart';
 
 class ApiService {
   static const String baseUrl =
@@ -45,12 +46,27 @@ class ApiService {
     String msg;
     try {
       final body = jsonDecode(utf8.decode(res.bodyBytes));
-      msg = body is Map ? (body['message']?.toString() ?? '요청 실패') : '요청 실패';
+      final m = body is Map ? body['message'] : null;
+      // 입력 검사 오류는 목록으로 온다 — '[아이디는 …]' 대괄호 그대로 보이지 않게 줄로 잇는다
+      msg = m is List ? m.join('\n') : (m?.toString() ?? '');
     } catch (_) {
-      msg = '요청 실패';
+      msg = '';
     }
-    throw Exception('$msg (${res.statusCode})');
+    // 화면엔 상태 번호 '(401)' 를 붙이지 않는다. 서버 기본 영어 문구('Unauthorized' 등)는 한국어로 바꾼다.
+    if (res.statusCode >= 500 || !RegExp(r'[가-힣]').hasMatch(msg)) msg = _statusText(res.statusCode);
+    throw Exception(msg);
   }
+
+  static String _statusText(int status) => switch (status) {
+        400 => '입력값을 확인해 주세요',
+        401 => '로그인이 필요합니다. 다시 로그인해 주세요',
+        403 => '이 작업을 할 권한이 없습니다',
+        404 => '찾을 수 없습니다. 새로고침해 주세요',
+        409 => '이미 있는 값입니다',
+        413 => '파일이 너무 큽니다',
+        _ when status >= 500 => '서버에 문제가 생겼습니다. 잠시 뒤 다시 해 주세요',
+        _ => '요청을 처리하지 못했습니다',
+      };
 
   /// 응답이 안 오면 무한정 기다리지 않는다(사진 인식은 길어서 따로 넉넉히).
   static const _timeout = Duration(seconds: 30);
@@ -183,7 +199,8 @@ class ApiService {
   /// 이미지 바이트를 S3에 직접 PUT하고 공개 imageUrl 을 반환.
   Future<String> uploadImage(String folder, String contentType, List<int> bytes) async {
     final urls = await _presignedUrl(folder, contentType);
-    final res = await http.put(Uri.parse(urls['uploadUrl']!), headers: {'Content-Type': contentType}, body: bytes);
+    // 끊기는 망에서 몇 분씩 돌지 않게 — 사진 한 장은 1분이면 충분하다
+    final res = await http.put(Uri.parse(urls['uploadUrl']!), headers: {'Content-Type': contentType}, body: bytes).timeout(const Duration(seconds: 60));
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw Exception('사진 업로드 실패 (${res.statusCode})');
     }
@@ -194,6 +211,9 @@ class ApiService {
 
   Future<List<UnitV2>> getUnits(int buildingId) async =>
       ((await _get('/buildings/$buildingId/units')) as List).map((e) => UnitV2.fromJson(Map<String, dynamic>.from(e))).toList();
+
+  /// 계량기가 없는 호실만 지워진다(서버가 확인).
+  Future<void> deleteUnit(int buildingId, int unitId) async => await _delete('/buildings/$buildingId/units/$unitId');
 
   Future<UnitV2> updateUnit(int buildingId, int unitId, Map<String, dynamic> data) async =>
       UnitV2.fromJson(Map<String, dynamic>.from(await _put('/buildings/$buildingId/units/$unitId', data)));
@@ -278,4 +298,28 @@ class ApiService {
 
   Future<StatementSettingsV2> saveStatementSettings(int buildingId, StatementSettingsV2 s) async =>
       StatementSettingsV2.fromJson(Map<String, dynamic>.from(await _put('/buildings/$buildingId/settings', s.toJson())));
+
+  // ── 내 계정 · 계정 관리(관리자) ─────────────────────────────────────────
+  Future<UserAccount> getAccount() async => UserAccount.fromJson(Map<String, dynamic>.from(await _get('/account')));
+
+  /// 새 토큰과 사용자 정보({access_token, user})를 돌려준다 — AuthService.saveSession 으로 이어 간다.
+  Future<Map<String, dynamic>> changeUsername(String username, String currentPassword) async =>
+      Map<String, dynamic>.from(await _put('/account/username', {'username': username, 'currentPassword': currentPassword}));
+
+  /// 다른 기기의 로그인은 끊기고, 이 기기는 돌려준 새 토큰으로 이어 간다.
+  Future<Map<String, dynamic>> changePassword(String currentPassword, String newPassword) async =>
+      Map<String, dynamic>.from(await _put('/account/password', {'currentPassword': currentPassword, 'newPassword': newPassword}));
+
+  Future<List<UserAccount>> getUsers() async =>
+      ((await _get('/users')) as List).map((e) => UserAccount.fromJson(Map<String, dynamic>.from(e))).toList();
+
+  Future<void> createUser({required String username, required String password, required String role, List<int>? buildingIds}) async =>
+      await _post('/users', {'username': username, 'password': password, 'role': role, if (buildingIds != null) 'buildingIds': buildingIds});
+
+  Future<void> updateUser(int userId, {String? role, String? password}) async =>
+      await _put('/users/$userId', {if (role != null) 'role': role, if (password != null) 'password': password});
+
+  Future<void> setUserBuildings(int userId, List<int> buildingIds) async => await _put('/users/$userId/buildings', {'buildingIds': buildingIds});
+
+  Future<void> deleteUser(int userId) async => await _delete('/users/$userId');
 }

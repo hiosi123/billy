@@ -14,7 +14,8 @@ class AppProvider extends ChangeNotifier {
 
   // ── 건물 목록 ──────────────────────────────────────────────
   List<Building> buildings = [];
-  bool loadingBuildings = false;
+  // 처음엔 '불러오는 중' — 첫 화면에 '아직 건물이 없습니다'가 잠깐 비치지 않게
+  bool loadingBuildings = true;
   Object? buildingsError;
 
   Future<void> loadBuildings() async {
@@ -56,8 +57,11 @@ class AppProvider extends ChangeNotifier {
   int? get buildingId => building?.buildingId;
 
   /// 주소의 건물 번호로 연다(이미 열려 있으면 그대로).
+  int _openSeq = 0; // 늦게 온 다른 건물 응답을 버린다(A 를 열다 B 로 바꾸면 A 가 B 를 덮어썼다)
+
   Future<void> openBuilding(int id, {bool force = false}) async {
     if (!force && building?.buildingId == id && !loadingBuilding && buildingError == null) return;
+    final seq = ++_openSeq;
     loadingBuilding = true;
     buildingError = null;
     notifyListeners();
@@ -69,12 +73,14 @@ class AppProvider extends ChangeNotifier {
         api.getUnits(id),
         api.getOverview(id, count: 12),
       ]);
+      if (seq != _openSeq) return;
       building = results[0] as Building;
       floors = results[1] as List<Floor>;
       rooms = results[2] as List<Room>;
       units = results[3] as List<UnitV2>;
       workingMonth = _workingMonthFrom((results[4] as ({int meters, List<MonthStatus> months})).months);
     } catch (e) {
+      if (seq != _openSeq) return;
       buildingError = e;
     }
     loadingBuilding = false;
@@ -129,12 +135,18 @@ class AppProvider extends ChangeNotifier {
     return null;
   }
 
+  /// 로그아웃·세션 만료 — 지난 계정의 건물·오류가 다음 로그인 화면에 비치지 않게 모두 비운다.
   void clear() {
+    _openSeq++;
     buildings = [];
+    loadingBuildings = true;
+    buildingsError = null;
     building = null;
     floors = [];
     rooms = [];
     units = [];
+    loadingBuilding = false;
+    buildingError = null;
     notifyListeners();
   }
 }

@@ -35,11 +35,17 @@ class _BuildingInfoScreenState extends State<BuildingInfoScreen> {
       showSnack(context, '건물 이름을 입력해주세요', error: true);
       return;
     }
+    // '3층'·'0' 은 예전엔 조용히 옛 값으로 남거나 알 수 없는 오류였다
+    final floors = int.tryParse(_floors.text.replaceAll('층', '').trim());
+    if (floors == null || floors < 1) {
+      showSnack(context, '층수는 1 이상의 숫자로 넣어 주세요', error: true);
+      return;
+    }
     try {
       await context.read<AppProvider>().updateBuildingInfo({
         'buildingName': _name.text.trim(),
         'buildingAddress': _address.text.trim(),
-        'buildingFloors': int.tryParse(_floors.text.trim()) ?? b.buildingFloors,
+        'buildingFloors': floors,
         'elevator': _elevator ? 1 : 0,
         'owner': _owner.text.trim(),
       });

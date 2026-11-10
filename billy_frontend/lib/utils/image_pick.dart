@@ -10,19 +10,21 @@ Future<({String data, String media})?> pickImageBase64(BuildContext context, {do
   if (!kIsWeb) {
     final picked = await showModalBottomSheet<ImageSource>(
       context: context,
-      builder: (_) => SafeArea(
+      useRootNavigator: true,
+      // 창의 context 로 닫는다 — 바깥 context 로 닫으면 뒤 화면이 닫혔다
+      builder: (sheet) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
               title: const Text('카메라로 촬영'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
+              onTap: () => Navigator.pop(sheet, ImageSource.camera),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
               title: const Text('갤러리에서 선택'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
+              onTap: () => Navigator.pop(sheet, ImageSource.gallery),
             ),
           ],
         ),

@@ -6,6 +6,7 @@ import '../../services/api_service.dart';
 import '../../services/auth_service.dart';
 import '../../providers/app_provider.dart';
 import '../../widgets/common.dart';
+import '../../widgets/ui.dart' show errorText;
 import '../../app/router.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _password = TextEditingController();
   final _api = ApiService();
   bool _loading = false;
+  bool _showPassword = false;
 
   @override
   void dispose() {
@@ -29,6 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
+    if (_loading) return; // Enter 를 연달아 눌러도 한 번만
     if (_username.text.trim().isEmpty || _password.text.isEmpty) {
       showSnack(context, '아이디와 비밀번호를 입력해주세요', error: true);
       return;
@@ -42,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
       authState.value = true;
       context.go('/');
     } catch (e) {
-      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+      if (mounted) showSnack(context, errorText(e), error: true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -87,6 +90,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: [
                           TextField(
                             controller: _username,
+                            autocorrect: false,
+                            enableSuggestions: false,
                             autofillHints: const [AutofillHints.username],
                             decoration: const InputDecoration(labelText: '아이디', prefixIcon: Icon(Icons.person_outline, size: 20)),
                             textInputAction: TextInputAction.next,
@@ -94,9 +99,21 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: BillySpace.md),
                           TextField(
                             controller: _password,
-                            obscureText: true,
+                            obscureText: !_showPassword,
+                            autocorrect: false,
+                            enableSuggestions: false,
                             autofillHints: const [AutofillHints.password],
-                            decoration: const InputDecoration(labelText: '비밀번호', prefixIcon: Icon(Icons.lock_outline, size: 20)),
+                            decoration: InputDecoration(
+                              labelText: '비밀번호',
+                              prefixIcon: const Icon(Icons.lock_outline, size: 20),
+                              suffixIcon: ExcludeFocus(
+                                child: IconButton(
+                                  tooltip: _showPassword ? '가리기' : '보이기',
+                                  icon: Icon(_showPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined, size: 20),
+                                  onPressed: () => setState(() => _showPassword = !_showPassword),
+                                ),
+                              ),
+                            ),
                             onSubmitted: (_) => _login(),
                           ),
                           const SizedBox(height: BillySpace.xl),

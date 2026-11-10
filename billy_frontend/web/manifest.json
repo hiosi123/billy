@@ -1,11 +1,11 @@
 {
-    "name": "billy_frontend",
-    "short_name": "billy_frontend",
+    "name": "Billy — 건물 관리비",
+    "short_name": "Billy",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#1B2A4A",
     "theme_color": "#1B2A4A",
-    "description": "A new Flutter project.",
+    "description": "검침부터 명세서까지, 우리 건물 방식대로 — 건물 관리비 정산",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

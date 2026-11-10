@@ -198,7 +198,8 @@ class UnitBill {
 
   String get title => name.isEmpty ? '$unitNumber호' : '$unitNumber호 $name';
   double get unpaid => (total - paidAmount).clamp(0, double.infinity).toDouble();
-  bool get paid => statementId != null && total > 0 && paidAmount >= total;
+  // 0원 명세서는 받을 게 없으니 완납 — 예전엔 영원히 '미납'으로 남았다
+  bool get paid => statementId != null && (total <= 0 || paidAmount >= total);
   bool get partlyPaid => paidAmount > 0 && paidAmount < total;
 }
 
@@ -313,7 +314,7 @@ class StatementSettingsV2 {
         'bankAccount': bankAccount,
         'notice': notice,
         'meterDay': meterDay,
-        if (dueDay != null) 'dueDay': dueDay,
+        'dueDay': dueDay, // null 이면 '비우면 고지월 말일'로 되돌린다(예전엔 빼서 보내 25일이 안 지워졌다)
         'lateFeeRate': lateFeeRate,
         'truncateUnit': truncateUnit,
       };

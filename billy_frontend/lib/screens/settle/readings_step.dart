@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../theme/app_theme.dart';
@@ -12,6 +13,7 @@ import '../../utils/image_pick.dart';
 import '../../utils/meter_check.dart';
 import '../../widgets/common.dart';
 import '../../widgets/ui.dart';
+import 'settle_screen.dart' show SettleDraft;
 
 /// 정산 1단계 — 검침. 호실별로 계량기를 묶어 보여 주고, 저장 전에 빈칸·소수점·감소를 확인한다.
 class ReadingsStep extends StatefulWidget {
@@ -36,6 +38,28 @@ class _ReadingsStepState extends State<ReadingsStep> {
   final Map<int, TextEditingController> _elec = {};
   // 촬영/저장 사진. 키: 'roomId-water' | 'roomId-electricity'. 저장 시 S3 URL로 갱신.
   final Map<String, BillPhoto> _photos = {};
+  // 저장된(불러온) 칸 값 — 지금 칸과 다르면 '저장 안 한 검침'(단계·탭을 옮기기 전에 묻는다)
+  Map<int, (String, String)> _base = {};
+
+  void _rebase(Iterable<int> roomIds) {
+    for (final rid in roomIds) {
+      _base[rid] = (_water[rid]?.text.trim() ?? '', _elec[rid]?.text.trim() ?? '');
+    }
+  }
+
+  /// 저장하지 않은 계량기(칸을 고쳤거나 찍은 사진이 아직 안 올라감).
+  List<int> get _unsaved {
+    if (!_ready) return const [];
+    final ids = {..._water.keys, ..._elec.keys};
+    return [
+      for (final rid in ids)
+        if ((_water[rid]?.text.trim() ?? '') != (_base[rid]?.$1 ?? '') ||
+            (_elec[rid]?.text.trim() ?? '') != (_base[rid]?.$2 ?? '') ||
+            _photos['$rid-water']?.base64 != null ||
+            _photos['$rid-electricity']?.base64 != null)
+          rid,
+    ];
+  }
 
   static String _prevMonth(String yyyymm) {
     final y = int.parse(yyyymm.substring(0, 4));
@@ -47,6 +71,23 @@ class _ReadingsStepState extends State<ReadingsStep> {
   @override
   void initState() {
     super.initState();
+    SettleDraft.claim(
+      this,
+      pending: () => _unsaved.isEmpty ? null : '검침 ${_unsaved.length}곳',
+      save: () async {
+        if (_saving) {
+          // 저장 중이면 끝나기를 기다린다(그사이 나가도 남은 계량기는 계속 저장된다)
+          showSnack(context, '저장하는 중입니다. 끝난 뒤 다시 눌러 주세요');
+          return false;
+        }
+        await _saveAll();
+        return mounted && _unsaved.isEmpty;
+      },
+      discard: () {
+        _photos.removeWhere((_, ph) => ph.base64 != null);
+        _rebase({..._water.keys, ..._elec.keys});
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -58,6 +99,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
 
   @override
   void dispose() {
+    SettleDraft.release(this);
     for (final c in _water.values) {
       c.dispose();
     }
@@ -84,6 +126,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
       _lastByRoom = {};
       _last2ByRoom = {};
       _photos.clear();
+      _base = {};
       for (final c in [..._water.values, ..._elec.values]) {
         c.clear();
       }
@@ -110,6 +153,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
           _photos['${r.roomId}-electricity'] = BillPhoto(url: info!.electricityMeterPhoto);
         }
       }
+      _rebase(p.rooms.map((r) => r.roomId));
       setState(() => _loading = false);
     } catch (_) {
       if (!mounted || seq != _loadSeq) return;
@@ -141,6 +185,12 @@ class _ReadingsStepState extends State<ReadingsStep> {
     return t.isEmpty ? null : double.tryParse(t);
   }
 
+  /// 칸에 뭔가 있는데 숫자가 아닌 것('53206..8') — 예전엔 빈칸으로 봐서 엉뚱한 안내가 나오거나 0으로 저장됐다.
+  List<String> _badFields(Room r) => [
+        if ((_water[r.roomId]?.text.trim().isNotEmpty ?? false) && _parse(_water[r.roomId]) == null) '수도',
+        if ((_elec[r.roomId]?.text.trim().isNotEmpty ?? false) && _parse(_elec[r.roomId]) == null) '전기',
+      ];
+
   /// 이번달/지난달 청구 맵만 다시 불러온다(입력 컨트롤러는 건드리지 않음).
   Future<void> _reloadMaps() async {
     final p = context.read<AppProvider>();
@@ -164,6 +214,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
       if (info == null) continue;
       if (info.waterMeasure > 0) _water[rid]?.text = num2(info.waterMeasure);
       if (info.electricityMeasure > 0) _elec[rid]?.text = num2(info.electricityMeasure);
+      _rebase([rid]);
     }
   }
 
@@ -176,9 +227,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
     return url;
   }
 
-  Future<void> _persist(Room room, String month) async {
-    final p = context.read<AppProvider>();
-    final api = p.api;
+  Future<void> _persist(Room room, String month, ApiService api) async {
     final waterUrl = await _uploadIfNeeded(api, '${room.roomId}-water');
     final elecUrl = await _uploadIfNeeded(api, '${room.roomId}-electricity');
     await api.insertMeasure({
@@ -236,7 +285,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (decimals.isNotEmpty) ...[
-              const Text('지난달 지침보다 10배 넘게 큰 값이 있습니다.'),
+              Text(keepAll('지난달 지침보다 10배 넘게 큰 값이 있습니다.')),
               const SizedBox(height: 4),
               for (final s in decimals)
                 Padding(
@@ -246,7 +295,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
             ],
             if (decimals.isNotEmpty && decreases.isNotEmpty) const SizedBox(height: 14),
             if (decreases.isNotEmpty) ...[
-              const Text('지난달보다 작은 지침이 있습니다. 그대로 저장하면 계량기가 한 바퀴 돈 것으로 계산됩니다.'),
+              Text(keepAll('지난달보다 작은 지침이 있습니다. 그대로 저장하면 계량기가 한 바퀴 돈 것으로 계산됩니다.')),
               const SizedBox(height: 4),
               for (final d in decreases)
                 Padding(
@@ -273,10 +322,18 @@ class _ReadingsStepState extends State<ReadingsStep> {
   }
 
   /// 단일 호실 저장 — 저장 후 그 호실만 동기화하므로 다른 입력칸은 그대로 유지된다.
+  /// 저장 중이면 true — 그동안 단계·탭을 옮기지 않게 한다(옮기면 남은 계량기 저장이 조용히 실패했다).
+  bool _saving = false;
+
   Future<void> _save(Room room) async {
     final month = widget.month;
-    if (!_ready) {
-      showSnack(context, '이 달 검침을 불러온 뒤에 저장해주세요', error: true);
+    if (!_ready || _saving) {
+      if (!_ready) showSnack(context, '이 달 검침을 불러온 뒤에 저장해주세요', error: true);
+      return;
+    }
+    final bad = _badFields(room);
+    if (bad.isNotEmpty) {
+      showSnack(context, '${_meterName(room)}: ${bad.join('·')} 지침이 숫자가 아닙니다. 숫자만 넣어 주세요(예: 53206.8)', error: true);
       return;
     }
     if (_parse(_water[room.roomId]) == null && _parse(_elec[room.roomId]) == null) {
@@ -290,25 +347,46 @@ class _ReadingsStepState extends State<ReadingsStep> {
       return;
     }
     if (!await _confirmReadings([room]) || !mounted) return;
+    final api = context.read<AppProvider>().api;
+    setState(() => _saving = true);
     try {
-      await _persist(room, month);
-      await _reloadMaps();
-      _syncControllers([room.roomId]);
-      if (mounted) {
-        setState(() {});
-        showSnack(context, '${_meterName(room)} 검침 저장 완료');
-      }
+      await _persist(room, month, api);
+      if (!mounted) return;
+      await _refreshAfterSave([room.roomId]);
+      if (mounted) showSnack(context, '${_meterName(room)} 검침 저장 완료');
     } catch (e) {
-      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+      if (mounted) showSnack(context, errorText(e), error: true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// 저장한 계량기만 서버값으로 맞춘다. 다시 불러오기가 실패해도 저장은 됐으니 그 칸은 '저장됨'으로 둔다
+  /// (옛 값으로 덮어써 방금 넣은 숫자가 사라지지 않게).
+  Future<void> _refreshAfterSave(Iterable<int> savedIds) async {
+    try {
+      await _reloadMaps();
+      if (!mounted) return;
+      _syncControllers(savedIds);
+    } catch (_) {
+      _rebase(savedIds);
+    }
+    if (mounted) setState(() {});
   }
 
   /// 입력된 모든 호실을 한 번에 저장(일괄 저장). 빈칸이 있는 계량기는 빼고 알려 준다.
   Future<void> _saveAll() async {
+    if (_saving) return;
     final p = context.read<AppProvider>();
+    final api = p.api;
     final month = widget.month;
     if (!_ready) {
       showSnack(context, '이 달 검침을 불러온 뒤에 저장해주세요', error: true);
+      return;
+    }
+    final invalid = [for (final r in p.rooms) if (_badFields(r).isNotEmpty) '${_meterName(r)}(${_badFields(r).join('·')})'];
+    if (invalid.isNotEmpty) {
+      showSnack(context, '숫자가 아닌 지침이 있습니다: ${invalid.join(', ')}', error: true);
       return;
     }
     final entered = p.rooms
@@ -330,20 +408,26 @@ class _ReadingsStepState extends State<ReadingsStep> {
       return;
     }
     if (!await _confirmReadings(targets) || !mounted) return;
+    setState(() => _saving = true);
     var ok = 0;
     final failed = <String>[];
-    for (final r in targets) {
-      try {
-        await _persist(r, month);
-        ok++;
-      } catch (_) {
-        failed.add(_meterName(r));
+    final saved = <int>[];
+    try {
+      for (final r in targets) {
+        try {
+          await _persist(r, month, api);
+          ok++;
+          saved.add(r.roomId);
+        } catch (_) {
+          failed.add(_meterName(r));
+        }
       }
+      if (!mounted) return;
+      await _refreshAfterSave(saved);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    await _reloadMaps();
-    _syncControllers(targets.map((r) => r.roomId));
     if (mounted) {
-      setState(() {});
       final notes = [
         if (failed.isNotEmpty) '실패: ${failed.join(', ')}',
         if (blocked.isNotEmpty) '빈칸이라 저장 안 함: ${blocked.join(', ')}',
@@ -358,7 +442,15 @@ class _ReadingsStepState extends State<ReadingsStep> {
 
   /// 계량기 사진 촬영/선택 → AI OCR → 지침 필드 자동 입력 + 사진 보존(화면 확인용).
   Future<void> _pickAndRead(String type, int roomId, TextEditingController ctl, double? lastValue) async {
-    final picked = await pickImageBase64(context, maxWidth: 1600);
+    ({String data, String media})? got;
+    try {
+      got = await pickImageBase64(context, maxWidth: 1600);
+    } catch (e) {
+      // 카메라 권한을 거절하면 예전엔 아무 말 없이 끝났다
+      if (mounted) showSnack(context, '사진을 가져오지 못했습니다. 카메라·사진 권한을 확인해 주세요', error: true);
+      return;
+    }
+    final picked = got;
     if (picked == null || !mounted) return;
     setState(() => _photos['$roomId-$type'] = BillPhoto(base64: picked.data, media: picked.media)); // 사진 남겨 비교
     final api = context.read<AppProvider>().api;
@@ -372,7 +464,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
         showSnack(context, '계량기 숫자를 인식하지 못했습니다. 사진을 보고 직접 입력해주세요', error: true);
       }
     } catch (e) {
-      if (mounted) showSnack(context, e.toString().replaceFirst('Exception: ', ''), error: true);
+      if (mounted) showSnack(context, errorText(e), error: true);
     }
   }
 
@@ -404,7 +496,7 @@ class _ReadingsStepState extends State<ReadingsStep> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('계량기 지침을 넣으면 지난달 대비 사용량이 바로 보입니다. 사진을 찍으면 AI 가 숫자를 읽어 줍니다.',
+                    Text(keepAll('계량기 지침을 넣으면 지난달 대비 사용량이 바로 보입니다. 사진을 찍으면 AI 가 숫자를 읽어 줍니다.'),
                         style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
                     const SizedBox(height: BillySpace.md),
                     if (_loading)
@@ -451,12 +543,30 @@ class _ReadingsStepState extends State<ReadingsStep> {
           ),
         ),
         StickyActionBar(
-          leading: Text('저장된 계량기 $entered/$total', style: BillyText.captionStrong.copyWith(color: entered >= total && total > 0 ? BillyColors.success : BillyColors.textSecondary)),
+          leading: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('저장', style: BillyText.caption.copyWith(color: BillyColors.textSecondary), maxLines: 1),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('$entered/$total',
+                  style: BillyText.captionStrong.copyWith(color: entered >= total && total > 0 ? BillyColors.success : BillyColors.textSecondary)),
+            ),
+          ]),
           children: [
             SizedBox(height: 46, child: AsyncButton(label: '모두 저장', icon: Icons.save_alt_rounded, onPressed: () async => _saveAll())),
             SizedBox(
               height: 46,
-              child: OutlinedButton(onPressed: widget.onNext, child: const Text('다음: 고지서')),
+              // 고친 검침이 있으면 저장부터 — 저장이 막히면(빈칸 등) 넘어가지 않는다
+              child: AsyncButton(
+                label: '다음: 고지서',
+                outlined: true,
+                onPressed: () async {
+                  if (_unsaved.isNotEmpty) {
+                    await _saveAll();
+                    if (!mounted || _unsaved.isNotEmpty) return;
+                  }
+                  widget.onNext();
+                },
+              ),
             ),
           ],
         ),
@@ -536,10 +646,19 @@ class _MeasureCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   Text('지난달 검침',
                       style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: BillyColors.textSecondary)),
-                  const Spacer(),
-                  _lastChip('수도', num2(lastInfo!.waterMeasure), BillyColors.water),
                   const SizedBox(width: 8),
-                  _lastChip('전기', num2(lastInfo!.electricityMeasure), BillyColors.electricity),
+                  // 큰 글자·긴 지침에서도 넘치지 않게 오른쪽 값은 줄여서 보인다
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        _lastChip('수도', num2(lastInfo!.waterMeasure), BillyColors.water),
+                        const SizedBox(width: 8),
+                        _lastChip('전기', num2(lastInfo!.electricityMeasure), BillyColors.electricity),
+                      ]),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -627,8 +746,12 @@ Widget _photoImage(BillPhoto photo, {double? w, double? h}) {
               child: const Icon(Icons.broken_image_outlined, size: 18, color: BillyColors.textHint),
             ));
   }
-  return Image.memory(base64Decode(photo.base64!), width: w, height: h, fit: BoxFit.cover);
+  return Image.memory(_bytesOf(photo), width: w, height: h, fit: BoxFit.cover, gaplessPlayback: true);
 }
+
+/// 찍은 사진(base64)을 한 번만 풀어 둔다 — 글자를 칠 때마다 다시 풀어 새 이미지로 깜빡였다.
+final _decoded = Expando<Uint8List>();
+Uint8List _bytesOf(BillPhoto photo) => _decoded[photo] ??= base64Decode(photo.base64!);
 
 /// 큰 사진 보기 다이얼로그(확대/이동 가능).
 void _showPhotoDialog(BuildContext context, BillPhoto photo) {
@@ -704,6 +827,8 @@ class _MeasureField extends StatelessWidget {
             final thisDelta = (thisUsage != null && lastUsage != null) ? thisUsage - lastUsage! : null;
             final warn = thisDelta != null && lastDelta != null && thisDelta.abs() > lastDelta.abs();
             final fix = suggestDecimalFix(reading, lastMeasure);
+            // '53206..8' 처럼 숫자가 아니면 바로 알린다(예전엔 빈칸으로 취급됐다)
+            final invalid = value.text.trim().isNotEmpty && reading == null;
 
             final lines = <Widget>[];
             if (lastUsage != null && lastUsage! > 0) lines.add(_metric('지난달 사용량', num2(lastUsage)));
@@ -717,13 +842,14 @@ class _MeasureField extends StatelessWidget {
             if (thisDelta != null) {
               lines.add(_metric('이번달 오차', _signed(thisDelta), strong: warn, strongColor: warn ? BillyColors.error : null));
             }
-            if (lines.isEmpty && photo == null) return const SizedBox.shrink();
+            if (lines.isEmpty && photo == null && !invalid) return const SizedBox.shrink();
 
             return Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (invalid) _warnBox('숫자만 넣어 주세요 (예: 53206.8)'),
                   ...lines,
                   if (thisUsage != null && thisUsage < 0) _warnBox('지침이 지난달보다 작습니다. 입력을 확인하세요'),
                   if (fix != null) ...[
@@ -735,7 +861,7 @@ class _MeasureField extends StatelessWidget {
                       style: TextButton.styleFrom(
                         foregroundColor: BillyColors.error,
                         padding: const EdgeInsets.symmetric(horizontal: 6),
-                        minimumSize: const Size(0, 30),
+                        minimumSize: const Size(0, 40),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         textStyle: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800),
                       ),
@@ -759,7 +885,7 @@ class _MeasureField extends StatelessWidget {
                                 decoration:
                                     BoxDecoration(color: BillyColors.scrim, borderRadius: BorderRadius.circular(6)),
                                 child: const Text('탭하면 확대',
-                                    style: TextStyle(color: BillyColors.onDark, fontSize: 9, fontWeight: FontWeight.w600)),
+                                    style: TextStyle(color: BillyColors.onDark, fontSize: 11, fontWeight: FontWeight.w600)),
                               ),
                             ),
                           ],
@@ -805,8 +931,8 @@ class _MeasureField extends StatelessWidget {
             const Icon(Icons.warning_amber_rounded, size: 13, color: BillyColors.error),
             const SizedBox(width: 4),
             Flexible(
-                child: Text(msg,
-                    style: const TextStyle(fontSize: 10.5, color: BillyColors.error, fontWeight: FontWeight.w700))),
+                child: Text(keepAll(msg),
+                    style: const TextStyle(fontSize: 11.5, color: BillyColors.error, fontWeight: FontWeight.w700))),
           ],
         ),
       ),
@@ -863,7 +989,10 @@ class _CamButtonState extends State<_CamButton> {
       onTap: _busy ? null : _run,
       borderRadius: BorderRadius.circular(9),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        // 손가락으로 누르기 쉽게 — 예전엔 26px 높이였다
+        constraints: const BoxConstraints(minHeight: 36),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: widget.color,
           borderRadius: BorderRadius.circular(9),

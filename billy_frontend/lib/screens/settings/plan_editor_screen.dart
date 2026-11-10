@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../app/shell.dart';
@@ -79,7 +81,11 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
       final ok = await confirmAction(context, title: '저장하지 않은 변경이 있습니다', message: '다른 버전을 열면 지금 고친 내용은 사라집니다.', ok: '버리고 열기');
       if (!ok || !mounted) return;
     }
-    setState(() => _plan = null);
+    setState(() {
+      _plan = null;
+      _month = month; // 다시 시도해도 고른 버전을 연다
+      _dirty = false; // 버리기로 했다
+    });
     await _load(month);
   }
 
@@ -90,6 +96,7 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
     final p = context.read<AppProvider>();
     try {
       final plan = await p.api.getPresetPlan(p.buildingId!, id);
+      if (!mounted) return; // 그새 화면을 나갔으면 '고침' 표시를 되살리지 않는다
       _changed(() => _plan = plan);
     } catch (e) {
       if (mounted) showSnack(context, errorText(e), error: true);
@@ -111,6 +118,16 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
     );
     if (result == null) return;
     final (edited, deleted) = result;
+    if (deleted && index != null) {
+      final code = plan.items[index].code;
+      final users = plan.items.where((x) => x.code != code && (x.refs.contains(code) || x.of == code)).map((x) => "'${x.label}'").toList();
+      if (users.isNotEmpty) {
+        if (mounted) showSnack(context, '${users.join('·')} 항목이 이 항목을 쓰고 있어 지울 수 없습니다. 먼저 그 항목에서 빼 주세요', error: true);
+        return;
+      }
+    }
+    // 열어 보기만 하고 '적용'을 누르면 바뀐 게 없다 — '저장 안 한 변경'으로 표시하지 않는다
+    if (!deleted && edited != null && index != null && jsonEncode(edited.toJson()) == jsonEncode(plan.items[index].toJson())) return;
     _changed(() {
       if (deleted && index != null) {
         plan.items.removeAt(index);
@@ -118,12 +135,23 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
         if (index != null) {
           plan.items[index] = edited;
         } else {
-          // 같은 묶음의 마지막 항목 뒤에 넣는다
-          final last = plan.items.lastIndexWhere((x) => x.group == edited.group);
-          plan.items.insert(last < 0 ? plan.items.length : last + 1, edited);
+          // 맨 끝에 넣는다 — 화면은 묶음별로 보여 같은 묶음의 마지막에 보이고, 참조(%·남는 금액)할 항목은 모두 앞에 있게 된다
+          plan.items.add(edited);
         }
       }
     });
+  }
+
+  /// 계산 순서 문제 — %·남는 금액 항목은 쓰는 항목보다 아래에 있어야 한다(위에서부터 계산).
+  String? _orderProblem(List<PlanItem> items) {
+    for (var i = 0; i < items.length; i++) {
+      final x = items[i];
+      for (final r in [...x.refs, if (x.of != null) x.of!]) {
+        final j = items.indexWhere((y) => y.code == r);
+        if (j > i) return "'${x.label}'은(는) '${items[j].label}'을(를) 쓰므로 그보다 아래에 있어야 합니다";
+      }
+    }
+    return null;
   }
 
   void _move(PlanItem item, int dir) {
@@ -134,6 +162,14 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
       j += dir;
     }
     if (j < 0 || j >= items.length) return;
+    final moved = [...items];
+    moved[i] = items[j];
+    moved[j] = item;
+    final problem = _orderProblem(moved);
+    if (problem != null) {
+      showSnack(context, problem, error: true);
+      return;
+    }
     _changed(() {
       items[i] = items[j];
       items[j] = item;
@@ -147,18 +183,28 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
       useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         title: const Text('묶음 이름'),
-        content: TextField(controller: ctl, autofocus: true, decoration: const InputDecoration(helperText: '명세서의 소계 이름(예: 관리비, 전기료)')),
+        content: TextField(
+          controller: ctl,
+          autofocus: true,
+          inputFormatters: [LengthLimitingTextInputFormatter(40)], // 서버가 40자에서 자른다
+          decoration: const InputDecoration(helperText: '명세서의 소계 이름(예: 관리비, 전기료)'),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
           FilledButton(onPressed: () => Navigator.pop(ctx, ctl.text.trim()), child: const Text('확인')),
         ],
       ),
     );
-    if (name != null && name.isNotEmpty) _changed(() => g.label = name);
+    ctl.dispose();
+    if (name != null && name.isNotEmpty && name != g.label) _changed(() => g.label = name);
   }
 
   void _addGroup() {
     final plan = _plan!;
+    if (plan.groups.length >= 12) {
+      showSnack(context, '묶음은 12개까지 만들 수 있습니다', error: true);
+      return;
+    }
     var i = plan.groups.length + 1;
     var code = 'group$i';
     while (plan.groups.any((g) => g.code == code)) {
@@ -188,7 +234,13 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
   /// 저장하려는 달이 이미 저장된 버전과 겹치면 알려 준다.
   String? _saveNote(String month) {
     final later = _versions.where((v) => v.compareTo(month) > 0).toList()..sort();
+    // 옛 버전(예: 3월분부터)을 열어 고친 뒤 더 뒤의 달로 저장하면, 그 사이 버전(9월분부터) 대신 이 내용이 쓰인다 — 말없이 바뀌지 않게
+    final viewing = _source == 'saved' ? _effectiveFrom : null;
+    final skipped = viewing == null
+        ? const <String>[]
+        : (_versions.where((v) => v.compareTo(viewing) > 0 && v.compareTo(month) <= 0 && v != month).toList()..sort());
     final notes = [
+      if (skipped.isNotEmpty) '지금 고친 것은 ${monthLabel(viewing!)}부터 쓰던 옛 요금표입니다 — ${monthLabel(skipped.last)}부터 쓰던 요금표 대신 이 내용이 쓰입니다.',
       if (_versions.contains(month)) '${monthLabel(month)}부터 쓰던 요금표를 이 내용으로 바꿉니다.',
       if (later.isNotEmpty) '${monthLabel(later.first)}부터는 따로 저장한 요금표가 있어 그쪽을 씁니다.',
     ];
@@ -210,7 +262,7 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             MonthStepper(month: month, dense: true, onChanged: (m) => setD(() => month = m)),
             const SizedBox(height: BillySpace.md),
-            Text('${monthLabel(month)} 정산부터 이 요금표로 계산합니다. 이미 확정한 달의 명세서는 그대로입니다(다시 확정하면 바뀝니다).',
+            Text(keepAll('${monthLabel(month)} 정산부터 이 요금표로 계산합니다. 이미 확정한 달의 명세서는 그대로입니다(다시 확정하면 바뀝니다).'),
                 style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
             if (note != null) ...[
               const SizedBox(height: BillySpace.sm),
@@ -345,7 +397,7 @@ class _PlanEditorScreenState extends State<PlanEditorScreen> {
           ),
         ]),
         const SizedBox(height: BillySpace.xs),
-        Text('항목을 누르면 이름·나누는 방식·금액을 바꿀 수 있습니다. [미리보기]로 지난달에 적용하면 얼마가 되는지 먼저 확인하세요.',
+        Text(keepAll('항목을 누르면 이름·나누는 방식·금액을 바꿀 수 있습니다. [미리보기]로 지난달에 적용하면 얼마가 되는지 먼저 확인하세요.'),
             style: BillyText.caption.copyWith(color: BillyColors.primaryDark)),
         if (_versions.isNotEmpty) ...[
           const SizedBox(height: BillySpace.sm),
@@ -404,16 +456,18 @@ extension on List<Widget> {
   }
 }
 
-String _inputName(String? key) => key == null ? '' : (inputLabels[key]?.$1 ?? key);
+String _inputName(String? key) => key == null ? '' : (inputLabels[key]?.$1 ?? (key.startsWith('IN_') ? '이 항목 금액' : key));
 
 /// 항목 한 줄 요약.
 String itemSummary(PlanItem i, PlanDef plan) {
-  String amountText() => i.cost?.input != null ? '매달 입력(${_inputName(i.cost!.input)})' : wonText(i.cost?.amount ?? i.amount ?? 0);
+  String amountText() => i.cost?.input != null
+      ? (i.cost!.input!.startsWith('IN_') ? '매달 입력' : '매달 입력(${_inputName(i.cost!.input)})')
+      : wonText(i.cost?.amount ?? i.amount ?? 0);
   final base = switch (i.method) {
     ChargeMethod.areaSplit => '면적 비율 · ${amountText()}',
     ChargeMethod.equalSplit => '호실 수로 똑같이 · ${amountText()}',
     ChargeMethod.usageSplit =>
-      '${i.utility == 'water' ? '수도' : '전기'} 사용량 비율 · ${i.cost?.minusInputs.isNotEmpty == true ? '${_inputName(i.cost?.input)} − (${i.cost!.minusInputs.map(_inputName).join(' + ')})' : _inputName(i.cost?.input)}',
+      '${i.utility == 'water' ? '수도' : '전기'} 사용량 비율 · ${i.cost?.minusInputs.isNotEmpty == true ? '${_inputName(i.cost?.input)} - (${i.cost!.minusInputs.map(_inputName).join(' + ')})' : _inputName(i.cost?.input)}',
     ChargeMethod.unitPrice => '${i.utility == 'water' ? '수도' : '전기'} 사용량 × 단가(${_inputName(i.cost?.input)} ÷ ${_inputName(i.usageInput)})',
     ChargeMethod.remainder =>
       '${_inputName(i.cost?.input)}에서 사용분을 뺀 나머지 · ${switch (i.split) { 'usage' => '사용량', 'equal' => '똑같이', _ => '면적' }}으로',
@@ -452,7 +506,7 @@ class _ItemTile extends StatelessWidget {
                 if (item.hidden) ...[const SizedBox(width: BillySpace.xs), const StatusChip('숨김')],
               ]),
               const SizedBox(height: 2),
-              Text(itemSummary(item, plan), style: BillyText.caption.copyWith(color: BillyColors.textSecondary), maxLines: 2),
+              Text(itemSummary(item, plan), style: BillyText.caption.copyWith(color: BillyColors.textSecondary), maxLines: 2, overflow: TextOverflow.ellipsis),
               if (item.category != null) ...[
                 const SizedBox(height: BillySpace.xs),
                 StatusChip('법정: ${item.category}', tone: Tone.info),
@@ -490,6 +544,8 @@ class _ItemEditorState extends State<_ItemEditor> {
   late bool _monthly = it.cost?.input != null && (it.method == ChargeMethod.areaSplit || it.method == ChargeMethod.equalSplit);
 
   static String _fmt(double? v) => v == null || v == 0 ? '' : v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
+  // 호실별 금액은 0 도 뜻이 있다(그 호실은 안 냄) — 빈칸(=기본 금액)과 구분해 보인다
+  static String _fmtKeep0(double? v) => v == null ? '' : v.toStringAsFixed(v % 1 == 0 ? 0 : 2);
 
   @override
   void dispose() {
@@ -503,9 +559,18 @@ class _ItemEditorState extends State<_ItemEditor> {
   }
 
   double? _num(TextEditingController c) {
-    final t = c.text.replaceAll(',', '').trim();
+    final t = c.text.replaceAll(',', '').replaceAll('원', '').trim();
     return t.isEmpty ? null : double.tryParse(t);
   }
+
+  /// 요율은 '2,7' 을 2.7 로 읽는다(쉼표를 지우면 27% 가 됐다).
+  double? _rateNum() {
+    final t = _rate.text.replaceAll('%', '').replaceAll(',', '.').trim();
+    return t.isEmpty ? null : double.tryParse(t);
+  }
+
+  /// 칸에 뭔가 있는데 숫자가 아님 — 예전엔 조용히 0 이 됐다('15,000원' 은 이제 읽는다).
+  bool _bad(TextEditingController c) => c.text.trim().isNotEmpty && _num(c) == null;
 
   /// 선택 가능한 월 입력 키(기본 키 + 이 항목 전용 키).
   List<(String, String)> _inputOptions(String? utility) {
@@ -549,6 +614,10 @@ class _ItemEditorState extends State<_ItemEditor> {
       showSnack(context, '항목 이름을 넣어 주세요', error: true);
       return;
     }
+    if (_bad(_amount) || _perUnit.values.any(_bad)) {
+      showSnack(context, '금액은 숫자로 넣어 주세요(예: 30000)', error: true);
+      return;
+    }
     it.label = _label.text.trim();
     switch (it.method) {
       case ChargeMethod.areaSplit:
@@ -565,17 +634,22 @@ class _ItemEditorState extends State<_ItemEditor> {
         it.perUnit = {for (final e in _perUnit.entries) if (_num(e.value) != null) '${e.key}': _num(e.value)!};
         it.cost = null;
       case ChargeMethod.percentOf:
-        final r = _num(_rate);
+        final r = _rateNum();
         if (r == null) {
-          showSnack(context, '요율(%)을 넣어 주세요', error: true);
+          showSnack(context, '요율(%)을 숫자로 넣어 주세요(예: 10, 2.7)', error: true);
           return;
         }
+        // 지운 항목을 가리키던 참조는 버린다(남아 있으면 저장이 계속 실패했다)
+        it.refs.removeWhere((c) => !widget.before.any((x) => x.code == c));
         if (it.refs.isEmpty) {
           showSnack(context, '요율을 곱할 항목을 하나 이상 고르세요', error: true);
           return;
         }
         it.rate = r / 100;
       case ChargeMethod.remainder:
+        // 화면 드롭다운에 보이는 항목으로 맞춘다 — 지운 항목을 가리키면 저장이 계속 실패했다
+        final prices = widget.before.where((x) => x.method == ChargeMethod.unitPrice).toList();
+        if (!prices.any((x) => x.code == it.of)) it.of = prices.firstOrNull?.code;
         if (it.of == null) {
           showSnack(context, "먼저 앞에 '사용량 × 단가' 항목이 있어야 합니다", error: true);
           return;
@@ -615,10 +689,15 @@ class _ItemEditorState extends State<_ItemEditor> {
           children: [
             Text(widget.isNew ? '항목 추가' : '항목 수정', style: BillyText.title),
             const SizedBox(height: BillySpace.lg),
-            TextField(controller: _label, decoration: const InputDecoration(labelText: '이름', hintText: '예: 청소비')),
+            TextField(
+              controller: _label,
+              inputFormatters: [LengthLimitingTextInputFormatter(60)], // 서버가 60자에서 자른다
+              decoration: const InputDecoration(labelText: '이름', hintText: '예: 청소비'),
+            ),
             const SizedBox(height: BillySpace.md),
             DropdownButtonFormField<String>(
               initialValue: plan.groups.any((g) => g.code == it.group) ? it.group : plan.groups.first.code,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: '묶음'),
               items: [for (final g in plan.groups) DropdownMenuItem(value: g.code, child: Text(g.label))],
               onChanged: (v) => setState(() => it.group = v ?? it.group),
@@ -633,21 +712,29 @@ class _ItemEditorState extends State<_ItemEditor> {
             ),
             Padding(
               padding: const EdgeInsets.only(top: BillySpace.xs),
-              child: Text(it.method.help, style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+              child: Text(keepAll(it.method.help), style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
             ),
             const SizedBox(height: BillySpace.md),
             ..._methodFields(units),
             const Divider(height: BillySpace.xxl),
             Text('대상 호실', style: BillyText.captionStrong),
             const SizedBox(height: BillySpace.xs),
-            Text('눌러서 뺄 호실을 고르세요(아무것도 안 고르면 전체)', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+            // 켜진 호실에만 나눈다 — 예전엔 켜진 칩이 '뺄 호실'이라 101·102 만 받으려다 그 둘을 뺐다
+            Text(keepAll('켜진 호실에만 나눕니다. 뺄 호실은 눌러서 끄세요'), style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
             const SizedBox(height: BillySpace.xs),
             Wrap(spacing: BillySpace.xs, runSpacing: BillySpace.xs, children: [
               for (final u in units)
                 FilterChip(
                   label: Text('${u.unitNumber}호'),
-                  selected: it.scopeExclude.contains(u.unitNumber),
-                  onSelected: (v) => setState(() => v ? it.scopeExclude.add(u.unitNumber) : it.scopeExclude.remove(u.unitNumber)),
+                  selected: (it.scopeOnly.isEmpty || it.scopeOnly.contains(u.unitNumber)) && !it.scopeExclude.contains(u.unitNumber),
+                  onSelected: (on) => setState(() {
+                    if (it.scopeOnly.isNotEmpty) {
+                      on ? it.scopeOnly.add(u.unitNumber) : it.scopeOnly.remove(u.unitNumber);
+                      it.scopeExclude.remove(u.unitNumber);
+                    } else {
+                      on ? it.scopeExclude.remove(u.unitNumber) : it.scopeExclude.add(u.unitNumber);
+                    }
+                  }),
                 ),
             ]),
             const SizedBox(height: BillySpace.md),
@@ -718,14 +805,14 @@ class _ItemEditorState extends State<_ItemEditor> {
           if (!_monthly)
             TextField(controller: _amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '한 달 전체 금액', suffixText: '원', helperText: '이 금액을 호실에 나눕니다'))
           else
-            Text('정산 2단계(고지서) 화면에 이 항목의 금액 칸이 생깁니다.', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+            Text(keepAll('정산 2단계(고지서) 화면에 이 항목의 금액 칸이 생깁니다.'), style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
         ];
       case ChargeMethod.usageSplit:
         return [
           utilityPicker(),
           const SizedBox(height: BillySpace.md),
           if (it.cost?.minusInputs.isNotEmpty == true)
-            Text('나눌 금액: ${_inputName(it.cost?.input)} − (${it.cost!.minusInputs.map(_inputName).join(' + ')}) — 기존 공동요금 식',
+            Text('나눌 금액: ${_inputName(it.cost?.input)} - (${it.cost!.minusInputs.map(_inputName).join(' + ')}) — 기존 공동요금 식',
                 style: BillyText.caption.copyWith(color: BillyColors.textSecondary))
           else
             inputPicker('나눌 금액(고지서)', it.cost?.input, (x) => it.cost = AmountSource(input: x), utility: it.utility),
@@ -742,10 +829,11 @@ class _ItemEditorState extends State<_ItemEditor> {
         final prices = widget.before.where((x) => x.method == ChargeMethod.unitPrice).toList();
         return [
           if (prices.isEmpty)
-            Text("이 항목보다 앞에 '사용량 × 단가' 항목을 먼저 만들어 주세요.", style: BillyText.caption.copyWith(color: BillyColors.error))
+            Text(keepAll("이 항목보다 앞에 '사용량 × 단가' 항목을 먼저 만들어 주세요."), style: BillyText.caption.copyWith(color: BillyColors.error))
           else
             DropdownButtonFormField<String>(
               initialValue: prices.any((x) => x.code == it.of) ? it.of : prices.first.code,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: '빼는 사용분 항목'),
               items: [for (final x in prices) DropdownMenuItem(value: x.code, child: Text(x.label))],
               onChanged: (v) => setState(() => it.of = v),
@@ -765,13 +853,13 @@ class _ItemEditorState extends State<_ItemEditor> {
           ExpansionTile(
             tilePadding: EdgeInsets.zero,
             title: Text('호실별로 다르게', style: BillyText.bodyStrong),
-            subtitle: Text('비우면 위 금액', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+            subtitle: Text('비우면 위 금액 · 0 이면 그 호실은 안 냄', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
             children: [
               for (final u in units)
                 Padding(
                   padding: const EdgeInsets.only(bottom: BillySpace.sm),
                   child: TextField(
-                    controller: _perUnit.putIfAbsent(u.unitNumber, () => TextEditingController(text: _fmt(it.perUnit['${u.unitNumber}']))),
+                    controller: _perUnit.putIfAbsent(u.unitNumber, () => TextEditingController(text: _fmtKeep0(it.perUnit['${u.unitNumber}']))),
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(labelText: u.title, suffixText: '원'),
                   ),
@@ -785,7 +873,7 @@ class _ItemEditorState extends State<_ItemEditor> {
           Text('요율을 곱할 항목', style: BillyText.captionStrong),
           const SizedBox(height: BillySpace.xs),
           if (candidates.isEmpty)
-            Text('앞에 있는 항목이 없습니다. 이 항목을 대상 항목들 뒤에 두세요.', style: BillyText.caption.copyWith(color: BillyColors.error))
+            Text(keepAll('앞에 있는 항목이 없습니다. 이 항목을 대상 항목들 뒤에 두세요.'), style: BillyText.caption.copyWith(color: BillyColors.error))
           else
             Wrap(spacing: BillySpace.xs, runSpacing: BillySpace.xs, children: [
               for (final x in candidates)
@@ -794,14 +882,21 @@ class _ItemEditorState extends State<_ItemEditor> {
                   selected: it.refs.contains(x.code),
                   onSelected: (v) => setState(() => v ? it.refs.add(x.code) : it.refs.remove(x.code)),
                 ),
+              // 지운 항목(또는 이 항목보다 아래로 간 항목)을 가리키는 참조 — 적용하면 빠진다
+              for (final r in it.refs.where((r) => !candidates.any((x) => x.code == r)).toList())
+                FilterChip(
+                  label: const Text('없는 항목'),
+                  selected: true,
+                  onSelected: (_) => setState(() => it.refs.remove(r)),
+                ),
             ]),
           const SizedBox(height: BillySpace.md),
           TextField(controller: _rate, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: '요율', suffixText: '%', helperText: '부가세 10, 전력산업기반기금 2.7')),
         ];
       case ChargeMethod.unitAttr:
-        return [Text("호실 화면의 '고정 금액'(화재보험료 등)을 그대로 씁니다.", style: BillyText.caption.copyWith(color: BillyColors.textSecondary))];
+        return [Text(keepAll("호실 화면의 '고정 금액'(화재보험료 등)을 그대로 씁니다."), style: BillyText.caption.copyWith(color: BillyColors.textSecondary))];
       case ChargeMethod.direct:
-        return [Text('정산 2단계(고지서) 화면에서 그달 호실별 금액을 직접 넣습니다.', style: BillyText.caption.copyWith(color: BillyColors.textSecondary))];
+        return [Text(keepAll('정산 2단계(고지서) 화면에서 그달 호실별 금액을 직접 넣습니다.'), style: BillyText.caption.copyWith(color: BillyColors.textSecondary))];
     }
   }
 }
@@ -828,22 +923,25 @@ class _PreviewSheetState extends State<_PreviewSheet> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _run());
   }
 
+  int _seq = 0; // 달을 빠르게 넘기면 늦게 온 옛 달 응답이 새 달 이름 아래 보였다
+
   Future<void> _run() async {
     final p = context.read<AppProvider>();
+    final seq = ++_seq;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final results = await Future.wait([p.api.previewMonth(p.buildingId!, _month), p.api.previewPlan(p.buildingId!, _month, widget.plan)]);
-      if (!mounted) return;
+      if (!mounted || seq != _seq) return;
       setState(() {
         _now = results[0];
         _draft = results[1];
         _loading = false;
       });
     } catch (e) {
-      if (mounted) {
+      if (mounted && seq == _seq) {
         setState(() {
           _error = e;
           _loading = false;
@@ -902,7 +1000,7 @@ class _PreviewSheetState extends State<_PreviewSheet> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('미리보기', style: BillyText.title),
           const SizedBox(height: BillySpace.xs),
-          Text('고른 달의 검침·고지서로 계산합니다. 저장하지 않습니다.', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+          Text(keepAll('고른 달의 검침·고지서로 계산합니다. 저장하지 않습니다.'), style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
           const SizedBox(height: BillySpace.md),
           Align(
             alignment: Alignment.centerLeft,

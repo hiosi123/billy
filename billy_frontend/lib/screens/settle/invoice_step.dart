@@ -11,6 +11,7 @@ import '../../utils/format.dart';
 import '../../utils/image_pick.dart';
 import '../../widgets/common.dart';
 import '../../widgets/ui.dart';
+import 'settle_screen.dart' show SettleDraft;
 
 /// 정산 2단계 — 고지서 금액. 요금표가 요구하는 칸만 나온다(항목을 바꾸면 칸도 바뀐다).
 /// 고지서 사진을 올리면 AI 가 금액을 읽어 채우고, 사진은 그달에 보관된다.
@@ -28,6 +29,7 @@ class _Field {
   final String label;
   final String unit;
   final TextEditingController ctl = TextEditingController();
+  String saved = ''; // 불러온(저장된) 글 — 지금 글과 다르면 '고친 것'
   _Field(this.key, this.label, this.unit);
 }
 
@@ -45,11 +47,32 @@ class _InvoiceStepState extends State<InvoiceStep> {
   List<_DirectSection> _direct = [];
   BillPhoto? _waterPhoto;
   final List<BillPhoto> _elecPhotos = [];
-  bool _dirty = false;
+  /// 고친 게 있나 — 칸 글이 저장된 값과 다르거나, 찍은 고지서 사진이 아직 안 올라갔다.
+  /// (예전엔 칸을 누르기만 해도 '고침'이 돼 빈 달에 0이 저장되고 '입력됨'으로 보였다)
+  bool get _dirty =>
+      _allFields.any((f) => f.ctl.text != f.saved) || _waterPhoto?.base64 != null || _elecPhotos.any((ph) => ph.base64 != null);
+
+  void _markSaved() {
+    for (final f in _allFields) {
+      f.saved = f.ctl.text;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    SettleDraft.claim(
+      this,
+      pending: () => _dirty && !_loading && _error == null ? '고지서 금액' : null,
+      save: () => _save(quiet: true),
+      discard: () {
+        for (final f in _allFields) {
+          f.ctl.text = f.saved;
+        }
+        _waterPhoto = _waterPhoto?.base64 != null ? null : _waterPhoto;
+        _elecPhotos.removeWhere((ph) => ph.base64 != null);
+      },
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -61,6 +84,7 @@ class _InvoiceStepState extends State<InvoiceStep> {
 
   @override
   void dispose() {
+    SettleDraft.release(this);
     for (final f in _allFields) {
       f.ctl.dispose();
     }
@@ -116,7 +140,7 @@ class _InvoiceStepState extends State<InvoiceStep> {
       for (final f in [...fields, for (final d in direct) ...d.rows.map((r) => r.$2)]) {
         final v = inputs.values[f.key];
         f.ctl.text = v == null || v == 0 ? '' : (f.unit == '원' ? money(v) : num2(v));
-        f.ctl.addListener(() => _dirty = true);
+        f.saved = f.ctl.text;
       }
       for (final f in _allFields) {
         f.ctl.dispose();
@@ -129,7 +153,6 @@ class _InvoiceStepState extends State<InvoiceStep> {
           ..clear()
           ..addAll(inputs.elecPhotos.where((s) => s.isNotEmpty).map(BillPhoto.fromStored));
         _loading = false;
-        _dirty = false;
       });
     } catch (e) {
       if (!mounted || seq != _seq) return;
@@ -152,16 +175,17 @@ class _InvoiceStepState extends State<InvoiceStep> {
     return api.uploadImage('bill', photo.media, base64Decode(photo.base64!));
   }
 
-  Future<void> _save({bool quiet = false}) async {
+  /// 저장했으면 true. 입력이 틀렸거나 서버가 거절하면 알리고 false(다음 단계로 넘어가지 않게).
+  Future<bool> _save({bool quiet = false}) async {
     if (_loading || _error != null) {
       showSnack(context, '이 달 입력값을 불러온 뒤에 저장해주세요', error: true);
-      return;
+      return false;
     }
     final p = context.read<AppProvider>();
     final bad = _allFields.where((f) => f.ctl.text.trim().isNotEmpty && _parse(f.ctl) == null).map((f) => f.label).toList();
     if (bad.isNotEmpty) {
       showSnack(context, '숫자가 아닌 칸: ${bad.join(', ')}', error: true);
-      return;
+      return false;
     }
     final values = {for (final f in _allFields) f.key: _parse(f.ctl) ?? 0.0};
     try {
@@ -172,26 +196,26 @@ class _InvoiceStepState extends State<InvoiceStep> {
         if (u != null) elecUrls.add(u);
       }
       await p.api.saveMonthInputs(p.buildingId!, widget.month, values, waterPhoto: waterUrl, elecPhotos: elecUrls);
-      if (!mounted) return;
+      _markSaved();
+      if (!mounted) return true;
       setState(() {
         if (waterUrl != null) _waterPhoto = BillPhoto(url: waterUrl);
         _elecPhotos
           ..clear()
           ..addAll(elecUrls.map((u) => BillPhoto(url: u)));
-        _dirty = false;
       });
       if (!quiet) showSnack(context, '${shortMonth(widget.month)} 고지서 금액을 저장했습니다');
+      return true;
     } catch (e) {
       if (mounted) showSnack(context, errorText(e), error: true);
-      rethrow;
+      return false;
     }
   }
 
+  /// 예전엔 입력이 틀려 저장이 안 돼도 다음 단계로 넘어가 고친 금액이 사라졌다.
   Future<void> _saveAndNext() async {
-    try {
-      if (_dirty) await _save(quiet: true);
-      widget.onNext();
-    } catch (_) {}
+    if (_dirty && !await _save(quiet: true)) return;
+    widget.onNext();
   }
 
   // ── 고지서 사진 → AI 인식(기존 API) ──
@@ -212,7 +236,14 @@ class _InvoiceStepState extends State<InvoiceStep> {
   static const _elecMap = {'electricityTotalCost': 'E_COST', 'electricityTotalUsage': 'E_USAGE'};
 
   Future<void> _readWater() async {
-    final picked = await pickImageBase64(context, maxWidth: 2400);
+    ({String data, String media})? got;
+    try {
+      got = await pickImageBase64(context, maxWidth: 2400);
+    } catch (_) {
+      if (mounted) showSnack(context, '사진을 가져오지 못했습니다. 카메라·사진 권한을 확인해 주세요', error: true);
+      return;
+    }
+    final picked = got;
     if (picked == null || !mounted) return;
     final api = context.read<AppProvider>().api;
     try {
@@ -227,7 +258,13 @@ class _InvoiceStepState extends State<InvoiceStep> {
   }
 
   Future<void> _readElec() async {
-    final images = await pickImagesBase64(maxWidth: 2400);
+    final List<({String data, String media})> images;
+    try {
+      images = await pickImagesBase64(maxWidth: 2400);
+    } catch (_) {
+      if (mounted) showSnack(context, '사진을 가져오지 못했습니다. 카메라·사진 권한을 확인해 주세요', error: true);
+      return;
+    }
     if (images.isEmpty || !mounted) return;
     final p = context.read<AppProvider>();
     try {
@@ -272,7 +309,7 @@ class _InvoiceStepState extends State<InvoiceStep> {
                               Row(children: [
                                 const Icon(Icons.auto_awesome_rounded, size: 18, color: BillyColors.primary),
                                 const SizedBox(width: BillySpace.sm),
-                                Expanded(child: Text('고지서 사진을 올리면 AI 가 금액을 읽어 채웁니다', style: BillyText.captionStrong.copyWith(color: BillyColors.primaryDark))),
+                                Expanded(child: Text(keepAll('고지서 사진을 올리면 AI 가 금액을 읽어 채웁니다'), style: BillyText.captionStrong.copyWith(color: BillyColors.primaryDark))),
                               ]),
                               const SizedBox(height: BillySpace.md),
                               Wrap(
@@ -325,8 +362,8 @@ class _InvoiceStepState extends State<InvoiceStep> {
         ),
         StickyActionBar(
           children: [
-            SizedBox(height: 46, child: AsyncButton(label: '저장', icon: Icons.save_rounded, onPressed: () async => _save().catchError((_) {}))),
-            SizedBox(height: 46, child: FilledButton(onPressed: _saveAndNext, child: const Text('다음: 검토'))),
+            SizedBox(height: 46, child: AsyncButton(label: '저장', icon: Icons.save_rounded, onPressed: () async => _save())),
+            SizedBox(height: 46, child: AsyncButton(label: '다음: 검토', onPressed: _saveAndNext)),
           ],
         ),
       ],

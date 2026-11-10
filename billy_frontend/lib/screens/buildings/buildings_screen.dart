@@ -13,12 +13,14 @@ import '../../widgets/ui.dart';
 class BuildingsScreen extends StatefulWidget {
   const BuildingsScreen({super.key});
 
+  /// 건물이 하나면 처음 한 번만 바로 들어간다 — 로그아웃·세션 만료 때 다시 켠다.
+  static bool autoOpened = false;
+
   @override
   State<BuildingsScreen> createState() => _BuildingsScreenState();
 }
 
 class _BuildingsScreenState extends State<BuildingsScreen> {
-  static bool _autoOpened = false;
 
   @override
   void initState() {
@@ -27,21 +29,14 @@ class _BuildingsScreenState extends State<BuildingsScreen> {
       final p = context.read<AppProvider>();
       await p.loadBuildings();
       if (!mounted) return;
-      if (!_autoOpened && p.buildings.length == 1 && p.buildingsError == null) {
-        _autoOpened = true;
+      if (!BuildingsScreen.autoOpened && p.buildings.length == 1 && p.buildingsError == null) {
+        BuildingsScreen.autoOpened = true;
         context.go('/b/${p.buildings.first.buildingId}/home');
       }
     });
   }
 
-  Future<void> _logout() async {
-    await AuthService.clear();
-    if (!mounted) return;
-    context.read<AppProvider>().clear();
-    _autoOpened = false;
-    authState.value = false;
-    context.go('/login');
-  }
+  Future<void> _logout() => signOut(context);
 
   @override
   Widget build(BuildContext context) {
@@ -185,6 +180,7 @@ class _AddBuildingSheetState extends State<_AddBuildingSheet> {
   final _floors = TextEditingController(text: '1');
   final _owner = TextEditingController();
   bool _elevator = false;
+  bool _saving = false; // 두 번 눌러 같은 건물이 둘 생기지 않게
 
   @override
   void dispose() {
@@ -195,15 +191,22 @@ class _AddBuildingSheetState extends State<_AddBuildingSheet> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (_name.text.trim().isEmpty) {
       showSnack(context, '건물 이름을 입력해주세요', error: true);
       return;
     }
+    final floors = int.tryParse(_floors.text.trim());
+    if (floors == null || floors < 1) {
+      showSnack(context, '층수는 1 이상의 숫자로 넣어 주세요', error: true);
+      return;
+    }
+    setState(() => _saving = true);
     try {
       final b = await context.read<AppProvider>().createBuilding({
         'buildingName': _name.text.trim(),
         'buildingAddress': _address.text.trim(),
-        'buildingFloors': int.tryParse(_floors.text.trim()) ?? 1,
+        'buildingFloors': floors,
         'elevator': _elevator ? 1 : 0,
         'owner': _owner.text.trim(),
       });
@@ -211,7 +214,10 @@ class _AddBuildingSheetState extends State<_AddBuildingSheet> {
       Navigator.pop(context);
       context.go('/b/${b.buildingId}/units');
     } catch (e) {
-      if (mounted) showSnack(context, errorText(e), error: true);
+      if (mounted) {
+        setState(() => _saving = false);
+        showSnack(context, errorText(e), error: true);
+      }
     }
   }
 
@@ -226,7 +232,7 @@ class _AddBuildingSheetState extends State<_AddBuildingSheet> {
           children: [
             Text('건물 추가', style: BillyText.title),
             const SizedBox(height: BillySpace.xs),
-            Text('만든 뒤 호실·계량기를 등록하고, 설정에서 관리비 항목을 정합니다.', style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
+            Text(keepAll('만든 뒤 호실·계량기를 등록하고, 설정에서 관리비 항목을 정합니다.'), style: BillyText.caption.copyWith(color: BillyColors.textSecondary)),
             const SizedBox(height: BillySpace.lg),
             TextField(controller: _name, decoration: const InputDecoration(labelText: '건물 이름')),
             const SizedBox(height: BillySpace.md),
@@ -246,7 +252,12 @@ class _AddBuildingSheetState extends State<_AddBuildingSheet> {
               onChanged: (v) => setState(() => _elevator = v),
             ),
             const SizedBox(height: BillySpace.sm),
-            FilledButton(onPressed: _save, child: const Text('만들기')),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: _saving
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: BillyColors.primary))
+                  : const Text('만들기'),
+            ),
           ],
         ),
       ),
