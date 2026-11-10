@@ -156,10 +156,13 @@ export class MonthsService {
     const issues: Issue[] = [];
 
     // 필요한 입력
+    // 'IN_GENERAL' 같은 항목 전용 입력은 그 항목 이름으로 부른다(화면·안내에 코드가 그대로 보였다)
+    const inputLabel = (key: string) =>
+      INPUT_LABELS[key]?.label ?? plan.items.find((i) => i.cost?.input === key)?.label?.concat(' 금액') ?? key;
     const required = requiredInputs(plan).map((key) => ({
       key,
-      label: INPUT_LABELS[key]?.label ?? key,
-      unit: INPUT_LABELS[key]?.unit ?? '',
+      label: inputLabel(key),
+      unit: INPUT_LABELS[key]?.unit ?? (key.startsWith('IN_') ? '원' : ''),
       value: input.inputs[key] ?? null,
     }));
     for (const r of required) {
@@ -388,7 +391,7 @@ export class MonthsService {
     const inputs = await this.dataSource.query('SELECT charge_month FROM calc_inputs WHERE building_id = $1 AND charge_month = ANY($2)', [buildingId, months]);
     const st = await this.dataSource.query(
       `SELECT charge_month, COUNT(*)::int AS n, SUM(total) AS total, SUM(LEAST(paid_amount, total)) AS paid,
-              COUNT(*) FILTER (WHERE paid_amount >= total AND total > 0)::int AS paid_n, MAX(issued_at) AS at
+              COUNT(*) FILTER (WHERE paid_amount >= total OR total <= 0)::int AS paid_n, MAX(issued_at) AS at
        FROM statements WHERE building_id = $1 AND charge_month = ANY($2) GROUP BY 1`,
       [buildingId, months],
     );

@@ -156,9 +156,15 @@ WHERE b.user_id IS NOT NULL AND EXISTS (SELECT 1 FROM users u WHERE u.user_id = 
 ON CONFLICT DO NOTHING;
 `;
 
+/** 내 계정 — 비밀번호를 바꾼 시각(그 전에 받은 토큰은 받지 않는다). timestamptz: 서버·DB 시간대가 달라도 같은 순간. */
+const m005 = `
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
+`;
+
 export const MIGRATIONS: SqlMigration[] = [
   { name: '001_additive', sql: m001 },
   { name: '002_calc_inputs', sql: m002 },
   { name: '003_meter_photos', sql: m003 },
   { name: '004_v2_core', sql: m004 },
+  { name: '005_account', sql: m005 },
 ];

@@ -7,7 +7,7 @@ export interface StatementSettings {
   bankAccount?: string;
   notice?: string;
   meterDay?: number;
-  dueDay?: number;
+  dueDay?: number | null; // null = 비움(고지월 말일)
   lateFeeRate?: number;
   truncateUnit?: number;
 }

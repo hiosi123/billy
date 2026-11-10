@@ -44,9 +44,10 @@ export class BuildingsController {
     return this.buildingsService.update(id, dto);
   }
 
+  /** 건물 삭제는 관리자나 그 건물 주인만 — 같이 쓰는 매니저 계정이 건물을 통째로 지우지 못하게. */
   @Delete(':id')
   async remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
-    await this.access.assertBuilding(user, id);
+    await this.access.assertBuildingOwner(user, id);
     return this.buildingsService.remove(id);
   }
 }

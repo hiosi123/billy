@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UseGuards, Delete } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BuildingAccessGuard } from '../access/building-access.guard';
@@ -46,6 +46,11 @@ export class BillingController {
     @Body() dto: { name?: string; area?: number; baseCost?: number },
   ) {
     return this.units.update(buildingId, unitId, dto);
+  }
+
+  @Delete('buildings/:buildingId/units/:unitId')
+  deleteUnit(@Param('buildingId', ParseIntPipe) buildingId: number, @Param('unitId', ParseIntPipe) unitId: number) {
+    return this.units.remove(buildingId, unitId);
   }
 
   // ── 요금표 ──

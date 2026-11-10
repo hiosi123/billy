@@ -57,6 +57,8 @@ export class SettingsService {
     };
     if (dto.meterDay !== undefined) clean.meterDay = int(dto.meterDay, 1, 31, '검침일');
     if (dto.dueDay !== undefined && dto.dueDay !== null) clean.dueDay = int(dto.dueDay, 1, 31, '납기일');
+    // null = 납기일을 비운다(고지월 말일) — 합치기(||)로는 키가 안 지워져 따로 뺀다
+    const clearDueDay = dto.dueDay === null;
     if (dto.lateFeeRate !== undefined) {
       const r = Number(dto.lateFeeRate);
       if (!Number.isFinite(r) || r < 0 || r > 0.1) throw new BadRequestException('연체율은 0~10% 사이여야 합니다');
@@ -72,6 +74,9 @@ export class SettingsService {
        ON CONFLICT (building_id) DO UPDATE SET statement = building_settings.statement || EXCLUDED.statement, updated_at = now()`,
       [buildingId, JSON.stringify(clean)],
     );
+    if (clearDueDay) {
+      await this.dataSource.query(`UPDATE building_settings SET statement = statement - 'dueDay' WHERE building_id = $1`, [buildingId]);
+    }
     return this.get(buildingId);
   }
 }

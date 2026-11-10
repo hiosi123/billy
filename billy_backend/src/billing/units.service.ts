@@ -102,6 +102,16 @@ export class UnitsService {
   }
 
   /** 호실 이름·면적·고정값 수정(계량기 행은 건드리지 않는다). */
+  /** 계량기가 하나도 없는 호실만 지운다(잘못 만든 호실 정리). 확정 명세서는 호수·이름을 따로 들고 있어 그대로 남는다. */
+  async remove(buildingId: number, unitId: number): Promise<{ message: string }> {
+    const rows = await this.dataSource.query('SELECT unit_number FROM units WHERE unit_id = $1 AND building_id = $2', [unitId, buildingId]);
+    if (rows.length === 0) throw new NotFoundException('호실을 찾을 수 없습니다');
+    const meters = await this.dataSource.query('SELECT 1 FROM unit_meters WHERE unit_id = $1 LIMIT 1', [unitId]);
+    if (meters.length > 0) throw new BadRequestException('계량기가 있는 호실은 지울 수 없습니다. 계량기를 먼저 지워 주세요');
+    await this.dataSource.query('DELETE FROM units WHERE unit_id = $1', [unitId]);
+    return { message: `${rows[0].unit_number}호를 지웠습니다` };
+  }
+
   async update(buildingId: number, unitId: number, dto: { name?: string; area?: number; baseCost?: number }): Promise<UnitView> {
     const rows = await this.dataSource.query('SELECT unit_id FROM units WHERE unit_id = $1 AND building_id = $2', [unitId, buildingId]);
     if (rows.length === 0) throw new NotFoundException('호실을 찾을 수 없습니다');

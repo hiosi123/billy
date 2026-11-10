@@ -33,6 +33,14 @@ export class AccessService {
     throw new ForbiddenException('이 건물에 접근할 권한이 없습니다');
   }
 
+  /** 건물 주인(buildings.user_id)이거나 관리자만 — 건물 삭제처럼 되돌릴 수 없는 일. */
+  async assertBuildingOwner(user: AuthUser | undefined, buildingId: number): Promise<void> {
+    await this.assertBuilding(user, buildingId);
+    if (this.isAdmin(user)) return;
+    const rows = await this.dataSource.query('SELECT user_id FROM buildings WHERE building_id = $1', [buildingId]);
+    if (Number(rows[0]?.user_id) !== user!.id) throw new ForbiddenException('건물은 주인이나 관리자만 지울 수 있습니다');
+  }
+
   /** 이 사용자가 볼 수 있는 건물 id 목록(관리자는 null = 전부). */
   async accessibleBuildingIds(user: AuthUser | undefined): Promise<number[] | null> {
     if (this.isAdmin(user)) return null;
