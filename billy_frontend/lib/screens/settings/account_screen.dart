@@ -62,6 +62,14 @@ class _AccountScreenState extends State<AccountScreen> {
     showSnack(context, '비밀번호를 바꿨습니다. 다른 기기에서는 다시 로그인해야 합니다');
   }
 
+  /// 내 계정 지우기 — 앱스토어 규정(계정을 만들 수 있는 앱은 앱 안에서 지우기도 돼야 한다).
+  Future<void> _deleteMe() async {
+    final ok = await showDialog<bool>(context: context, useRootNavigator: true, builder: (_) => const _DeleteMeDialog());
+    if (ok != true || !mounted) return;
+    showSnack(context, '계정을 지웠습니다');
+    await signOut(context);
+  }
+
   Future<void> _editUser(UserAccount? user) async {
     final p = context.read<AppProvider>();
     var buildings = p.buildings;
@@ -123,6 +131,17 @@ class _AccountScreenState extends State<AccountScreen> {
                                   onTap: () => signOut(context),
                                 ),
                               ]),
+                            ),
+                            const SizedBox(height: BillySpace.md),
+                            BillyCard(
+                              padding: const EdgeInsets.symmetric(vertical: BillySpace.xs),
+                              child: ListTile(
+                                leading: const Icon(Icons.person_remove_outlined, color: BillyColors.textSecondary),
+                                title: Text('계정 삭제', style: BillyText.body.copyWith(color: BillyColors.textSecondary)),
+                                subtitle: Text(keepAll('이 계정으로 더 이상 로그인하지 않습니다. 건물·관리비 기록은 남습니다'),
+                                    style: BillyText.caption.copyWith(color: BillyColors.textHint)),
+                                onTap: _deleteMe,
+                              ),
                             ),
                             if (me.isAdmin) ..._adminSection(me),
                           ],
@@ -332,6 +351,73 @@ Widget _errorLine(String? e) => e == null
 
 Widget _busyLabel(bool busy, String label) =>
     busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: BillyColors.onDark)) : Text(label);
+
+class _DeleteMeDialog extends StatefulWidget {
+  const _DeleteMeDialog();
+
+  @override
+  State<_DeleteMeDialog> createState() => _DeleteMeDialogState();
+}
+
+class _DeleteMeDialogState extends State<_DeleteMeDialog> {
+  final _password = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy || _password.text.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context.read<AppProvider>().api.deleteAccount(_password.text);
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = errorText(e);
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      scrollable: true,
+      title: const Text('계정을 지울까요?'),
+      content: SizedBox(
+        width: 360,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(
+            keepAll('지운 계정으로는 다시 로그인할 수 없고 되돌릴 수 없습니다. 건물·검침·명세서 기록은 지워지지 않고 남습니다. '
+                '마지막 관리자 계정은 지울 수 없습니다.'),
+            style: BillyText.body,
+          ),
+          const SizedBox(height: BillySpace.md),
+          _PasswordField(controller: _password, label: '지금 비밀번호', autofocus: true, onChanged: (_) => setState(() {}), onSubmitted: _submit),
+          _errorLine(_error),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: _busy ? null : () => Navigator.pop(context, false), child: const Text('취소')),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: BillyColors.error),
+          onPressed: _busy || _password.text.isEmpty ? null : _submit,
+          child: _busyLabel(_busy, '계정 삭제'),
+        ),
+      ],
+    );
+  }
+}
 
 class _UsernameDialog extends StatefulWidget {
   final String current;

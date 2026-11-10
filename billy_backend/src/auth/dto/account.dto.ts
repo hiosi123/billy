@@ -17,6 +17,13 @@ export class ChangeUsernameDto {
   currentPassword: string;
 }
 
+/** 내 계정 지우기 — 지금 비밀번호로 확인. */
+export class DeleteAccountDto {
+  @IsString()
+  @MinLength(1, { message: '지금 비밀번호를 넣어 주세요' })
+  currentPassword: string;
+}
+
 /** 비밀번호 규칙 — 기존 Go 백엔드와 같다(10자 이상, 공백 없이). */
 export class ChangePasswordDto {
   @IsString()

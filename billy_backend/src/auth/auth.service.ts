@@ -59,6 +59,20 @@ export class AuthService {
     return this.buildResponse(u);
   }
 
+  /**
+   * 내 계정 지우기(앱스토어 규정 5.1.1(v) — 계정을 만들 수 있는 앱은 지우기도 앱 안에서 돼야 한다).
+   * 마지막 관리자는 못 지운다(아무도 계정을 관리 못 하게 된다). 건물·관리비 기록은 남는다(건물 주인 칸만 비워진다).
+   */
+  async deleteAccount(userId: number, currentPassword: string) {
+    const u = await this.checkPassword(userId, currentPassword);
+    if (u.role === 'admin') {
+      const admins = await this.usersRepo.count({ where: { role: 'admin' } });
+      if (admins <= 1) throw new BadRequestException('마지막 관리자 계정은 지울 수 없습니다. 다른 관리자를 먼저 만들어 주세요');
+    }
+    await this.usersRepo.delete({ userId });
+    return { message: '계정을 지웠습니다' };
+  }
+
   /** 틀리면 400 — 401 이면 화면이 '로그인 만료'로 알고 내보낸다. */
   private async checkPassword(userId: number, plain: string): Promise<User> {
     const u = await this.usersRepo.findOne({ where: { userId }, select: ['userId', 'username', 'password', 'role'] });

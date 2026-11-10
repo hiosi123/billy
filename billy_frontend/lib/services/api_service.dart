@@ -310,6 +310,9 @@ class ApiService {
   Future<Map<String, dynamic>> changePassword(String currentPassword, String newPassword) async =>
       Map<String, dynamic>.from(await _put('/account/password', {'currentPassword': currentPassword, 'newPassword': newPassword}));
 
+  /// 내 계정 지우기(마지막 관리자는 서버가 막는다).
+  Future<void> deleteAccount(String currentPassword) async => await _post('/account/delete', {'currentPassword': currentPassword});
+
   Future<List<UserAccount>> getUsers() async =>
       ((await _get('/users')) as List).map((e) => UserAccount.fromJson(Map<String, dynamic>.from(e))).toList();
 
